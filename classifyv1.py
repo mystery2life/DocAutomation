@@ -1,8 +1,9 @@
 import os
+import json
 import logging
-import azure.functions as func
 import pyodbc
-from datetime import datetime, timezone
+import azure.functions as func
+from datetime import datetime
 
 app = func.FunctionApp()
 
@@ -19,19 +20,19 @@ def _sql_conn_str():
 
 @app.service_bus_queue_trigger(
     arg_name="azservicebus",
-    queue_name=os.getenv("SERVICEBUS_QUEUE_CLASSIFY","q-classify"),
+    queue_name=os.getenv("SERVICEBUS_QUEUE_CLASSIFY", "q-classify"),
     connection="SB_CONNECTION_STRING",
 )
 def classifyv1(azservicebus: func.ServiceBusMessage):
     body = azservicebus.get_body().decode("utf-8")
     msg_id = getattr(azservicebus, "message_id", None)
     seq_num = getattr(azservicebus, "sequence_number", None)
-    enq_time = getattr(azservicebus, "enqueued_time_utc", None)
+    enq_time = getattr(azservicebus, "enqueued_time_utc", None)  # OK if None
 
     schema = os.getenv("SQL_SCHEMA", "dbo")
-    table = os.getenv("SQL_TABLE", "ClassifyAudit")
+    table  = os.getenv("SQL_TABLE", "ClassifyAudit")
 
-    logging.info("classifyv1: received msg_id=%s seq=%s body=%s", msg_id, seq_num, body)
+    logging.info("classifyv1: received msg_id=%s seq=%s", msg_id, seq_num)
 
     try:
         with pyodbc.connect(_sql_conn_str()) as conn:
@@ -40,15 +41,19 @@ def classifyv1(azservicebus: func.ServiceBusMessage):
                     f"INSERT INTO {schema}.{table} "
                     "(MsgId, SequenceNumber, Body, EnqueuedUtc, ProcessedUtc) "
                     "VALUES (?, ?, ?, ?, ?)",
-                    msg_id, seq_num, body, enq_time,
-                    datetime.now(timezone.utc)
+                    msg_id,
+                    seq_num,
+                    body,
+                    enq_time,               # may be None (column should allow NULL)
+                    datetime.utcnow()       # ✅ naive UTC
                 )
                 conn.commit()
         logging.info("classifyv1: inserted into %s.%s", schema, table)
 
     except Exception as e:
-        logging.error("SQL insert failed: %s", str(e))
+        logging.exception("SQL insert failed")
         raise
+
 
 
 
