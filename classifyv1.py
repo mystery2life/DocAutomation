@@ -57,3 +57,21 @@ def classifyv1(azservicebus: func.ServiceBusMessage):
         # Let the Functions host handle retries / dead-lettering if enabled
         raise
 
+
+
+
+
+
+
+CREATE TABLE dbo.ClassifyAudit
+(
+  AuditId         UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+  MsgId           NVARCHAR(128)    NULL,
+  SequenceNumber  BIGINT           NULL,
+  Body            NVARCHAR(MAX)    NOT NULL,
+  EnqueuedUtc     DATETIME2(3)     NULL,
+  ProcessedUtc    DATETIME2(3)     NOT NULL DEFAULT SYSUTCDATETIME(),
+  PRIMARY KEY (AuditId)
+);
+
+
