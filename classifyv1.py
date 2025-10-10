@@ -1,61 +1,55 @@
-import logging
 import os
-import json
+import logging
 import azure.functions as func
 import pyodbc
 from datetime import datetime, timezone
 
 app = func.FunctionApp()
 
-SQL_CONN_STR = os.getenv("SQL_CONN_STR")
-
-def _insert_audit_row(conn_str: str, msg_id, seq_num, body_text, enqueued_utc):
-    with pyodbc.connect(conn_str) as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO dbo.ClassifyAudit (MsgId, SequenceNumber, Body, EnqueuedUtc, ProcessedUtc)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                msg_id,
-                seq_num,
-                body_text,
-                enqueued_utc,
-                datetime.now(timezone.utc)
-            )
-            conn.commit()
+def _sql_conn_str():
+    return (
+        f"Driver={{ODBC Driver 18 for SQL Server}};"
+        f"Server=tcp:{os.getenv('SQL_SERVER')},1433;"
+        f"Database={os.getenv('SQL_DB')};"
+        f"Uid={os.getenv('SQL_USER')};"
+        f"Pwd={os.getenv('SQL_PASSWORD')};"
+        f"Encrypt={os.getenv('SQL_ENCRYPT','yes')};"
+        "TrustServerCertificate=no;Connection Timeout=30;"
+    )
 
 @app.service_bus_queue_trigger(
     arg_name="azservicebus",
-    queue_name="q-classify",
+    queue_name=os.getenv("SERVICEBUS_QUEUE_CLASSIFY","q-classify"),
     connection="SB_CONNECTION_STRING",
 )
 def classifyv1(azservicebus: func.ServiceBusMessage):
-    """
-    Triggered by messages on q-classify. Stores each message into dbo.ClassifyAudit.
-    """
+    body = azservicebus.get_body().decode("utf-8")
+    msg_id = getattr(azservicebus, "message_id", None)
+    seq_num = getattr(azservicebus, "sequence_number", None)
+    enq_time = getattr(azservicebus, "enqueued_time_utc", None)
+
+    schema = os.getenv("SQL_SCHEMA", "dbo")
+    table = os.getenv("SQL_TABLE", "ClassifyAudit")
+
+    logging.info("classifyv1: received msg_id=%s seq=%s body=%s", msg_id, seq_num, body)
+
     try:
-        body = azservicebus.get_body().decode("utf-8")
-        msg_id = getattr(azservicebus, "message_id", None)
-        seq_num = getattr(azservicebus, "sequence_number", None)
-        enq_time = getattr(azservicebus, "enqueued_time_utc", None)
-
-        # Optional: validate JSON without failing the run
-        try:
-            _ = json.loads(body)
-        except Exception:
-            pass  # keep raw body
-
-        logging.info("classifyv1: msg_id=%s seq=%s enq=%s", msg_id, seq_num, enq_time)
-
-        _insert_audit_row(SQL_CONN_STR, msg_id, seq_num, body, enq_time)
-
-        logging.info("classifyv1: wrote to dbo.ClassifyAudit for msg_id=%s seq=%s", msg_id, seq_num)
+        with pyodbc.connect(_sql_conn_str()) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"INSERT INTO {schema}.{table} "
+                    "(MsgId, SequenceNumber, Body, EnqueuedUtc, ProcessedUtc) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    msg_id, seq_num, body, enq_time,
+                    datetime.now(timezone.utc)
+                )
+                conn.commit()
+        logging.info("classifyv1: inserted into %s.%s", schema, table)
 
     except Exception as e:
-        logging.exception("classifyv1 error: %s", e)
-        # Let the Functions host handle retries / dead-lettering if enabled
+        logging.error("SQL insert failed: %s", str(e))
         raise
+
 
 
 
