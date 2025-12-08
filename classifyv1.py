@@ -358,3 +358,174 @@ envelope = build_classification_envelope(
 
 envelope_dict = envelope.model_dump()
 logging.info("Classification envelope: %s", json.dumps(envelope_dict))
+
+
+
+
+
+pymupdf
+opencv-python
+numpy
+
+
+
+
+
+# classifier_module/pixel_extractor.py
+from __future__ import annotations
+
+import io
+import logging
+from typing import Dict, List, Optional
+
+import numpy as np
+import cv2
+import fitz  # PyMuPDF
+
+
+def _pdf_page_to_image_from_bytes(
+    pdf_bytes: bytes,
+    page_num: int,
+    zoom: float = 2.0,
+) -> np.ndarray:
+    """
+    Render a single PDF page to an OpenCV BGR image.
+
+    Args:
+        pdf_bytes: Full PDF file in bytes.
+        page_num: 1-based page index.
+        zoom: Zoom factor for rendering (higher = more pixels).
+
+    Returns:
+        img: np.ndarray (H, W, 3) in BGR format.
+    """
+    # Open PDF from bytes
+    doc = fitz.open(stream=io.BytesIO(pdf_bytes).read(), filetype="pdf")
+    try:
+        # PyMuPDF is 0-based; caller is 1-based
+        page = doc[page_num - 1]
+
+        mat = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=mat)
+
+        img = np.frombuffer(pix.samples, dtype=np.uint8)
+        img = img.reshape(pix.h, pix.w, pix.n)
+
+        # Drop alpha channel if present
+        if img.shape[2] == 4:
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+
+        return img
+    finally:
+        doc.close()
+
+
+def _find_largest_quadrilateral(img: np.ndarray) -> Optional[np.ndarray]:
+    """
+    Detect the largest 4-point contour in the image.
+
+    Returns:
+        approx: np.ndarray of shape (4, 1, 2) containing 4 corner points,
+                or None if no quadrilateral is found.
+    """
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    edges = cv2.Canny(gray, 50, 150)
+    edges = cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=1)
+
+    contours, _ = cv2.findContours(
+        edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+
+    best_quad = None
+    best_area = 0.0
+
+    for cnt in contours:
+        peri = cv2.arcLength(cnt, True)
+        approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+
+        # We care only about 4-sided polygons
+        if len(approx) == 4:
+            area = cv2.contourArea(approx)
+            if area > best_area:
+                best_area = area
+                best_quad = approx
+
+    return best_quad
+
+
+def _order_corners(quad: np.ndarray) -> List[List[float]]:
+    """
+    Order quad corners as: top-left, top-right, bottom-right, bottom-left.
+
+    quad: np.ndarray of shape (4, 1, 2) or (4, 2)
+    """
+    pts = quad.reshape(4, 2).astype(np.float32)
+
+    s = pts.sum(axis=1)
+    diff = np.diff(pts, axis=1).reshape(-1)
+
+    ordered = np.zeros((4, 2), dtype=np.float32)
+    ordered[0] = pts[np.argmin(s)]     # top-left
+    ordered[2] = pts[np.argmax(s)]     # bottom-right
+    ordered[1] = pts[np.argmin(diff)]  # top-right
+    ordered[3] = pts[np.argmax(diff)]  # bottom-left
+
+    # Convert to Python lists [[x,y], ...]
+    return [[float(x), float(y)] for x, y in ordered]
+
+
+def extract_pixel_coordinates(
+    pdf_bytes: bytes,
+    pages: list[int],
+) -> Optional[Dict[int, List[List[float]]]]:
+    """
+    For each page in `pages`, detect the largest rectangular region
+    (assumed to be the document / ID card) and return its 4 corner
+    points in pixel coordinates.
+
+    Returns:
+        dict[page_number] = [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
+        or None if nothing could be detected for any page.
+
+    Per your rule:
+        - If we hit any fatal error, we log and return None.
+        - If some pages fail detection but at least one succeeds,
+          we return coordinates only for the successful pages.
+    """
+    if not pages:
+        return None
+
+    coords: Dict[int, List[List[float]]] = {}
+
+    try:
+        for page_num in pages:
+            try:
+                img = _pdf_page_to_image_from_bytes(pdf_bytes, page_num, zoom=2.0)
+            except Exception:
+                logging.exception(
+                    "Failed to render page %s for pixel extraction.", page_num
+                )
+                continue  # skip this page, try others
+
+            quad = _find_largest_quadrilateral(img)
+            if quad is None:
+                logging.info(
+                    "No rectangular document-like region detected on page %s.",
+                    page_num,
+                )
+                continue  # nothing for this page
+
+            ordered_corners = _order_corners(quad)
+            coords[page_num] = ordered_corners
+
+        if not coords:
+            # No page produced usable coordinates
+            return None
+
+        return coords
+
+    except Exception:
+        logging.exception("Unexpected error during pixel coordinate extraction.")
+        return None
