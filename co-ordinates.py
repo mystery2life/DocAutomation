@@ -878,3 +878,308 @@ def process_envelope(envelope_dict: dict, pdf_bytes: bytes) -> dict:
     }
   ]
 }
+
+
+
+-------------------------
+
+
+
+{
+  "job_uuid": "2bc4403-59ba-4392-8e51-9e113aa0601e",
+  "processed_utc": "2025-12-09T07:13:28Z",
+  "blob_path": "ingest/2025/12/09/201901fb-0e76-4740-8d82-sample.pdf",
+  "total_pages": 17,
+  "documents_data": [
+    {
+      "doc_id": "DOC_ID1",
+      "doc_type": "paystub",
+      "pages": [1, 2],
+      "doc_pixel_coordinates": {
+        "1": [[110, 90], [1910, 90], [1910, 1080], [110, 1080]],
+        "2": [[120, 95], [1900, 95], [1900, 1075], [120, 1075]]
+      },
+      "result_json": {
+        "status": "processed",
+        "doc_type": "paystub",
+        "extracted_fields": {
+          "EmployeeAddress":   { "value": "1234 Concord St, Nashua, NH 03064", "confidence": 84.2 },
+          "EmployeeName":      { "value": "John Doe",                         "confidence": 96.1 },
+          "EmployeeSSN":       { "value": "700-XX-1234",                      "confidence": 92.0 },
+          "EmployerAddress":   { "value": "99 Main St, Anytown, NH 10000",    "confidence": 70.5 },
+          "EmployerName":      { "value": "Google Inc",                       "confidence": 85.0 },
+          "PayDate":           { "value": "2025-10-13",                       "confidence": 77.3 },
+          "PayPeriodStartDate":{ "value": "2025-10-06",                       "confidence": 62.9 },
+          "PayPeriodEndDate":  { "value": "2025-10-13",                       "confidence": 93.3 },
+          "CurrentPeriodGrossPay": { "value": "828.07",                       "confidence": 97.6 },
+          "YearToDateGrossPay":    { "value": "23280.00",                     "confidence": 92.2 },
+          "CurrentPeriodTaxes":    { "value": "210.50",                       "confidence": 90.1 },
+          "YearToDateTaxes":       { "value": "4430.12",                      "confidence": 91.8 },
+          "CurrentPeriodDeductions": { "value": "414.43",                     "confidence": 95.3 },
+          "YearToDateDeductions":    { "value": "6630.88",                    "confidence": 90.5 },
+          "CurrentPeriodNetPay":     { "value": "413.57",                     "confidence": 97.2 },
+          "YearToDateNetPay":        { "value": "16649.12",                   "confidence": 90.0 },
+          "TotalHours":              { "value": 69,                           "confidence": 100.0 },
+          "AveragePayRate":          { "value": 12.0,                         "confidence": 100.0 },
+          "JobTitle":                { "value": "Software Engineer",          "confidence": 88.7 },
+          "PayFrequency":            { "value": "BIWEEKLY",                   "confidence": 93.9 }
+        }
+      }
+    },
+    {
+      "doc_id": "DOC_ID2",
+      "doc_type": "bank_statement",
+      "pages": [3, 4, 5, 6],
+      "doc_pixel_coordinates": {
+        "3": [[100, 80], [1910, 80], [1910, 1070], [100, 1070]],
+        "4": [[105, 82], [1905, 82], [1905, 1072], [105, 1072]],
+        "5": [[110, 84], [1900, 84], [1900, 1074], [110, 1074]],
+        "6": [[115, 86], [1895, 86], [1895, 1076], [115, 1076]]
+      },
+      "result_json": {
+        "status": "not_processed",
+        "doc_type": "bank_statement",
+        "extracted_fields": {}
+      }
+    },
+    {
+      "doc_id": "DOC_ID3",
+      "doc_type": "paystub",
+      "pages": [7, 8],
+      "doc_pixel_coordinates": {
+        "7": [[120, 100], [1910, 100], [1910, 1070], [120, 1070]],
+        "8": [[130, 105], [1900, 105], [1900, 1065], [130, 1065]]
+      },
+      "result_json": {
+        "status": "processed",
+        "doc_type": "paystub",
+        "extracted_fields": {
+          "EmployeeAddress":   { "value": "987 Elm St, Manchester, NH 03101", "confidence": 82.6 },
+          "EmployeeName":      { "value": "Jane Smith",                       "confidence": 95.4 },
+          "EmployeeSSN":       { "value": "701-XX-5678",                      "confidence": 91.2 },
+          "EmployerAddress":   { "value": "500 Tech Park, Boston, MA 02110",  "confidence": 73.1 },
+          "EmployerName":      { "value": "Acme Corp",                        "confidence": 87.5 },
+          "PayDate":           { "value": "2025-09-30",                       "confidence": 79.4 },
+          "PayPeriodStartDate":{ "value": "2025-09-23",                       "confidence": 68.8 },
+          "PayPeriodEndDate":  { "value": "2025-09-30",                       "confidence": 92.7 },
+          "CurrentPeriodGrossPay": { "value": "1542.35",                      "confidence": 96.9 },
+          "YearToDateGrossPay":    { "value": "30120.50",                     "confidence": 93.1 },
+          "CurrentPeriodTaxes":    { "value": "389.72",                       "confidence": 89.5 },
+          "YearToDateTaxes":       { "value": "6120.33",                      "confidence": 90.4 },
+          "CurrentPeriodDeductions": { "value": "210.40",                     "confidence": 94.6 },
+          "YearToDateDeductions":    { "value": "4120.99",                    "confidence": 91.3 },
+          "CurrentPeriodNetPay":     { "value": "942.23",                     "confidence": 96.2 },
+          "YearToDateNetPay":        { "value": "19879.18",                   "confidence": 92.4 },
+          "TotalHours":              { "value": 80,                           "confidence": 99.1 },
+          "AveragePayRate":          { "value": 19.3,                         "confidence": 98.7 },
+          "JobTitle":                { "value": "Data Analyst",               "confidence": 89.9 },
+          "PayFrequency":            { "value": "WEEKLY",                     "confidence": 92.1 }
+        }
+      }
+    },
+    {
+      "doc_id": "DOC_ID4",
+      "doc_type": "passport",
+      "pages": [9],
+      "doc_pixel_coordinates": {
+        "9": [[340, 220], [1580, 220], [1580, 900], [340, 900]]
+      },
+      "result_json": {
+        "status": "processed",
+        "doc_type": "passport",
+        "extracted_fields": {
+          "DocumentNumber":                 { "value": "X1234567",   "confidence": 98.4 },
+          "FirstName":                      { "value": "John",       "confidence": 97.1 },
+          "MiddleName":                     { "value": "A",          "confidence": 88.6 },
+          "LastName":                       { "value": "Doe",        "confidence": 98.0 },
+          "Aliases":                        { "value": ["Johnny"],   "confidence": 72.9 },
+          "Aliases.*":                      { "value": "Johnny",     "confidence": 72.9 },
+          "DateOfBirth":                    { "value": "1990-05-14", "confidence": 96.3 },
+          "DateOfExpiration":               { "value": "2030-05-13", "confidence": 95.7 },
+          "DateOfIssue":                    { "value": "2020-05-14", "confidence": 94.1 },
+          "Sex":                            { "value": "M",          "confidence": 99.0 },
+          "CountryRegion":                  { "value": "USA",        "confidence": 99.2 },
+          "DocumentType":                   { "value": "P",          "confidence": 98.8 },
+          "Nationality":                    { "value": "USA",        "confidence": 99.2 },
+          "PlaceOfBirth":                   { "value": "Boston, MA", "confidence": 90.6 },
+          "PlaceOfIssue":                   { "value": "Boston, MA", "confidence": 89.7 },
+          "IssuingAuthority":              { "value": "U.S. Department of State", "confidence": 93.8 },
+          "PersonalNumber":                { "value": "999999999",  "confidence": 81.5 },
+          "MachineReadableZone.FirstName": { "value": "JOHN",       "confidence": 97.9 },
+          "MachineReadableZone.LastName":  { "value": "DOE",        "confidence": 97.9 },
+          "MachineReadableZone.DocumentNumber": { "value": "X1234567", "confidence": 98.3 },
+          "MachineReadableZone.CountryRegion":  { "value": "USA",    "confidence": 99.1 },
+          "MachineReadableZone.Nationality":    { "value": "USA",    "confidence": 99.1 },
+          "MachineReadableZone.DateOfBirth":    { "value": "900514", "confidence": 96.0 },
+          "MachineReadableZone.DateOfExpiration": { "value": "300513", "confidence": 95.5 },
+          "MachineReadableZone.Sex":             { "value": "M",     "confidence": 98.9 }
+        }
+      }
+    },
+    {
+      "doc_id": "DOC_ID5",
+      "doc_type": "dl",
+      "pages": [10],
+      "doc_pixel_coordinates": {
+        "10": [[360, 260], [1560, 260], [1560, 860], [360, 860]]
+      },
+      "result_json": {
+        "status": "processed",
+        "doc_type": "dl",
+        "extracted_fields": {
+          "CountryRegion":        { "value": "USA",            "confidence": 99.0 },
+          "Region":               { "value": "NH",             "confidence": 98.2 },
+          "DocumentNumber":       { "value": "D123456789",     "confidence": 97.6 },
+          "DocumentDiscriminator":{ "value": "01-23-45",       "confidence": 84.3 },
+          "FirstName":            { "value": "John",           "confidence": 96.8 },
+          "LastName":             { "value": "Doe",            "confidence": 97.3 },
+          "Address":              { "value": "1234 Concord St, Nashua, NH 03064", "confidence": 92.4 },
+          "DateOfBirth":          { "value": "1990-05-14",     "confidence": 96.5 },
+          "DateOfExpiration":     { "value": "2029-05-14",     "confidence": 95.2 },
+          "DateOfIssue":          { "value": "2019-05-14",     "confidence": 94.7 },
+          "EyeColor":             { "value": "BRO",            "confidence": 93.1 },
+          "HairColor":            { "value": "BLK",            "confidence": 92.0 },
+          "Height":               { "value": "5'11\"",         "confidence": 91.4 },
+          "Weight":               { "value": "183 lb",         "confidence": 88.9 },
+          "Sex":                  { "value": "M",              "confidence": 99.2 },
+          "Endorsements":         { "value": "NONE",           "confidence": 80.3 },
+          "Restrictions":         { "value": "CORRECTIVE LENSES", "confidence": 86.7 },
+          "PersonalNumber":       { "value": "123456789",      "confidence": 82.5 },
+          "PlaceOfBirth":         { "value": "Boston, MA",     "confidence": 78.4 },
+          "VehicleClassifications": { "value": "CLASS D",      "confidence": 93.0 }
+        }
+      }
+    },
+    {
+      "doc_id": "DOC_ID6",
+      "doc_type": "ssn",
+      "pages": [11],
+      "doc_pixel_coordinates": {
+        "11": [[400, 280], [1520, 280], [1520, 820], [400, 820]]
+      },
+      "result_json": {
+        "status": "processed",
+        "doc_type": "ssn",
+        "extracted_fields": {
+          "DocumentNumber": { "value": "123-45-6789", "confidence": 97.1 },
+          "FirstName":      { "value": "John",        "confidence": 95.8 },
+          "LastName":       { "value": "Doe",         "confidence": 96.3 },
+          "DateOfIssue":    { "value": "2010-03-15",  "confidence": 83.9 }
+        }
+      }
+    },
+    {
+      "doc_id": "DOC_ID7",
+      "doc_type": "unknown",
+      "pages": [12],
+      "doc_pixel_coordinates": {
+        "12": [[150, 90], [1850, 90], [1850, 1040], [150, 1040]]
+      },
+      "result_json": {
+        "status": "not_processed",
+        "doc_type": "unknown",
+        "extracted_fields": {}
+      }
+    },
+    {
+      "doc_id": "DOC_ID8",
+      "doc_type": "bank_statement",
+      "pages": [13, 14],
+      "doc_pixel_coordinates": {
+        "13": [[130, 80], [1870, 80], [1870, 1045], [130, 1045]],
+        "14": [[135, 82], [1865, 82], [1865, 1047], [135, 1047]]
+      },
+      "result_json": {
+        "status": "not_processed",
+        "doc_type": "bank_statement",
+        "extracted_fields": {}
+      }
+    },
+    {
+      "doc_id": "DOC_ID9",
+      "doc_type": "unknown",
+      "pages": [15],
+      "doc_pixel_coordinates": {
+        "15": [[160, 100], [1840, 100], [1840, 1030], [160, 1030]]
+      },
+      "result_json": {
+        "status": "not_processed",
+        "doc_type": "unknown",
+        "extracted_fields": {}
+      }
+    },
+    {
+      "doc_id": "DOC_ID10",
+      "doc_type": "passport",
+      "pages": [16],
+      "doc_pixel_coordinates": {
+        "16": [[350, 230], [1570, 230], [1570, 910], [350, 910]]
+      },
+      "result_json": {
+        "status": "processed",
+        "doc_type": "passport",
+        "extracted_fields": {
+          "DocumentNumber":                 { "value": "Y7654321",   "confidence": 98.1 },
+          "FirstName":                      { "value": "Jane",       "confidence": 97.4 },
+          "MiddleName":                     { "value": "B",          "confidence": 87.2 },
+          "LastName":                       { "value": "Smith",      "confidence": 97.9 },
+          "Aliases":                        { "value": [],           "confidence": 50.0 },
+          "Aliases.*":                      { "value": null,         "confidence": 0.0 },
+          "DateOfBirth":                    { "value": "1992-11-02", "confidence": 96.0 },
+          "DateOfExpiration":               { "value": "2032-11-01", "confidence": 95.6 },
+          "DateOfIssue":                    { "value": "2022-11-02", "confidence": 94.2 },
+          "Sex":                            { "value": "F",          "confidence": 99.1 },
+          "CountryRegion":                  { "value": "USA",        "confidence": 99.3 },
+          "DocumentType":                   { "value": "P",          "confidence": 98.6 },
+          "Nationality":                    { "value": "USA",        "confidence": 99.3 },
+          "PlaceOfBirth":                   { "value": "Seattle, WA","confidence": 90.3 },
+          "PlaceOfIssue":                   { "value": "Seattle, WA","confidence": 89.5 },
+          "IssuingAuthority":               { "value": "U.S. Department of State", "confidence": 93.5 },
+          "PersonalNumber":                 { "value": "888888888",  "confidence": 80.9 },
+          "MachineReadableZone.FirstName":  { "value": "JANE",       "confidence": 97.8 },
+          "MachineReadableZone.LastName":   { "value": "SMITH",      "confidence": 97.8 },
+          "MachineReadableZone.DocumentNumber": { "value": "Y7654321", "confidence": 98.0 },
+          "MachineReadableZone.CountryRegion":  { "value": "USA",    "confidence": 99.0 },
+          "MachineReadableZone.Nationality":    { "value": "USA",    "confidence": 99.0 },
+          "MachineReadableZone.DateOfBirth":    { "value": "921102", "confidence": 95.9 },
+          "MachineReadableZone.DateOfExpiration": { "value": "321101", "confidence": 95.4 },
+          "MachineReadableZone.Sex":            { "value": "F",      "confidence": 98.8 }
+        }
+      }
+    },
+    {
+      "doc_id": "DOC_ID11",
+      "doc_type": "dl",
+      "pages": [17],
+      "doc_pixel_coordinates": {
+        "17": [[365, 255], [1555, 255], [1555, 855], [365, 855]]
+      },
+      "result_json": {
+        "status": "processed",
+        "doc_type": "dl",
+        "extracted_fields": {
+          "CountryRegion":        { "value": "USA",            "confidence": 99.1 },
+          "Region":               { "value": "MA",             "confidence": 97.9 },
+          "DocumentNumber":       { "value": "S987654321",     "confidence": 97.2 },
+          "DocumentDiscriminator":{ "value": "11-22-33",       "confidence": 83.6 },
+          "FirstName":            { "value": "Jane",           "confidence": 96.2 },
+          "LastName":             { "value": "Smith",          "confidence": 96.9 },
+          "Address":              { "value": "45 Harbor Way, Boston, MA 02110", "confidence": 91.7 },
+          "DateOfBirth":          { "value": "1992-11-02",     "confidence": 96.0 },
+          "DateOfExpiration":     { "value": "2030-11-02",     "confidence": 95.1 },
+          "DateOfIssue":          { "value": "2020-11-02",     "confidence": 94.3 },
+          "EyeColor":             { "value": "BLU",            "confidence": 92.7 },
+          "HairColor":            { "value": "BRN",            "confidence": 92.2 },
+          "Height":               { "value": "5'6\"",          "confidence": 90.8 },
+          "Weight":               { "value": "140 lb",         "confidence": 88.1 },
+          "Sex":                  { "value": "F",              "confidence": 99.0 },
+          "Endorsements":         { "value": "NONE",           "confidence": 79.8 },
+          "Restrictions":         { "value": "NONE",           "confidence": 82.9 },
+          "PersonalNumber":       { "value": "987654321",      "confidence": 81.2 },
+          "PlaceOfBirth":         { "value": "Seattle, WA",    "confidence": 77.5 },
+          "VehicleClassifications": { "value": "CLASS D",      "confidence": 92.8 }
+        }
+      }
+    }
+  ]
+}
