@@ -723,3 +723,158 @@ def process_envelope(envelope_dict: dict, pdf_bytes: bytes) -> dict:
     except Exception as e:
         logging.exception("Error while serializing/logging final envelope: %s", e)
         raise
+
+
+
+-------------------------------json-----------------
+
+
+{
+  "job_uuid": "2bc44039-59ba-4392-8e51-9e113aa0061e",
+  "processed_utc": "2025-12-09T17:41:32Z",
+  "blob_path": "ingest/2025/12/09/2019YTD-payroll.pdf",
+  "total_pages": 20,
+  "documents_data": [
+    {
+      "doc_id": "DOC_001",
+      "doc_type": "paystub",
+      "pages": [1, 2],
+      "doc_pixel_coordinates": {
+        "1": [[100, 100], [500, 100], [500, 400], [100, 400]],
+        "2": [[110, 120], [510, 120], [510, 420], [110, 420]]
+      },
+      "result_json": {
+        "status": "success",
+        "extracted_fields": {
+          "EmployeeAddress": { "value": "1234 Concord St, Nashua, NH 03064", "confidence": 42.4 },
+          "EmployeeName": { "value": "John Doe", "confidence": 96.1 },
+          "EmployeeSSN": { "value": "XXX-XX-1234", "confidence": 92.0 },
+          "EmployerAddress": { "value": "99 Main St, Anytown, NH 10000", "confidence": 70.5 },
+          "EmployerName": { "value": "Google Inc.", "confidence": 85.0 },
+          "PayDate": { "value": "2025-10-13", "confidence": 77.3 },
+          "PayPeriodStartDate": { "value": "2025-10-06", "confidence": 62.9 },
+          "PayPeriodEndDate": { "value": "2025-10-13", "confidence": 93.3 },
+          "CurrentPeriodGrossPay": { "value": "828.00", "confidence": 97.6 },
+          "YearToDateGrossPay": { "value": "23280.00", "confidence": 92.2 },
+          "CurrentPeriodTaxes": { "value": null, "confidence": null },
+          "YearToDateTaxes": { "value": null, "confidence": null },
+          "CurrentPeriodDeductions": { "value": "414.43", "confidence": 95.3 },
+          "YearToDateDeductions": { "value": "6630.88", "confidence": 90.5 },
+          "CurrentPeriodNetPay": { "value": "413.57", "confidence": 97.2 },
+          "YearToDateNetPay": { "value": "16649.12", "confidence": 90.0 },
+          "TotalHours": { "value": 69, "confidence": 100.0 },
+          "AveragePayRate": { "value": 12.0, "confidence": 100.0 },
+          "JobTitle": { "value": null, "confidence": null },
+          "PayFrequency": { "value": null, "confidence": null }
+        }
+      }
+    },
+    {
+      "doc_id": "DOC_002",
+      "doc_type": "bank_stmt",
+      "pages": [3, 10],
+      "doc_pixel_coordinates": {
+        "3": [[90, 80], [550, 80], [550, 700], [90, 700]],
+        "4": [[90, 80], [550, 80], [550, 700], [90, 700]],
+        "5": [[90, 80], [550, 80], [550, 700], [90, 700]],
+        "6": [[90, 80], [550, 80], [550, 700], [90, 700]],
+        "7": [[90, 80], [550, 80], [550, 700], [90, 700]],
+        "8": [[90, 80], [550, 80], [550, 700], [90, 700]],
+        "9": [[90, 80], [550, 80], [550, 700], [90, 700]],
+        "10": [[90, 80], [550, 80], [550, 700], [90, 700]]
+      },
+      "result_json": {
+        "status": "not_processed",
+        "extracted_fields": {}
+      }
+    },
+    {
+      "doc_id": "DOC_003",
+      "doc_type": "passport",
+      "pages": [11],
+      "doc_pixel_coordinates": {
+        "11": [[120, 90], [520, 90], [520, 380], [120, 380]]
+      },
+      "result_json": {
+        "status": "success",
+        "extracted_fields": {
+          "DocumentNumber": { "value": "X1234567", "confidence": 98.0 },
+          "FirstName": { "value": "JOHN", "confidence": 98.0 },
+          "MiddleName": { "value": "A", "confidence": 95.0 },
+          "LastName": { "value": "DOE", "confidence": 98.0 },
+          "Aliases": { "value": null, "confidence": null },
+          "Aliases.*": { "value": null, "confidence": null },
+          "DateOfBirth": { "value": "1990-01-15", "confidence": 97.0 },
+          "DateOfExpiration": { "value": "2030-01-14", "confidence": 97.0 },
+          "DateOfIssue": { "value": "2020-01-15", "confidence": 97.0 },
+          "Sex": { "value": "M", "confidence": 99.0 },
+          "CountryRegion": { "value": "USA", "confidence": 99.0 },
+          "DocumentType": { "value": "P", "confidence": 99.0 },
+          "Nationality": { "value": "USA", "confidence": 99.0 },
+          "PlaceOfBirth": { "value": "NASHUA", "confidence": 96.0 },
+          "PlaceOfIssue": { "value": "BOSTON", "confidence": 96.0 },
+          "IssuingAuthority": { "value": "US DEPARTMENT OF STATE", "confidence": 96.0 },
+          "PersonalNumber": { "value": null, "confidence": null },
+          "MachineReadableZone.FirstName": { "value": "JOHN", "confidence": 98.0 },
+          "MachineReadableZone.LastName": { "value": "DOE", "confidence": 98.0 },
+          "MachineReadableZone.DocumentNumber": { "value": "X1234567", "confidence": 98.0 },
+          "MachineReadableZone.CountryRegion": { "value": "USA", "confidence": 98.0 },
+          "MachineReadableZone.Nationality": { "value": "USA", "confidence": 98.0 },
+          "MachineReadableZone.DateOfBirth": { "value": "1990-01-15", "confidence": 98.0 },
+          "MachineReadableZone.DateOfExpiration": { "value": "2030-01-14", "confidence": 98.0 },
+          "MachineReadableZone.Sex": { "value": "M", "confidence": 98.0 }
+        }
+      }
+    },
+    {
+      "doc_id": "DOC_004",
+      "doc_type": "dl",
+      "pages": [12],
+      "doc_pixel_coordinates": {
+        "12": [[130, 100], [530, 100], [530, 360], [130, 360]]
+      },
+      "result_json": {
+        "status": "success",
+        "extracted_fields": {
+          "CountryRegion": { "value": "USA", "confidence": 99.0 },
+          "Region": { "value": "NH", "confidence": 99.0 },
+          "DocumentNumber": { "value": "D123456789", "confidence": 98.0 },
+          "DocumentDiscriminator": { "value": "A1B2C3", "confidence": 90.0 },
+          "FirstName": { "value": "JOHN", "confidence": 98.0 },
+          "LastName": { "value": "DOE", "confidence": 98.0 },
+          "Address": { "value": "1234 Concord St, Nashua, NH 03064", "confidence": 95.0 },
+          "DateOfBirth": { "value": "1990-01-15", "confidence": 97.0 },
+          "DateOfExpiration": { "value": "2031-10-01", "confidence": 97.0 },
+          "DateOfIssue": { "value": "2023-10-01", "confidence": 97.0 },
+          "EyeColor": { "value": "BRN", "confidence": 95.0 },
+          "HairColor": { "value": "BLK", "confidence": 95.0 },
+          "Height": { "value": "5'11\"", "confidence": 95.0 },
+          "Weight": { "value": "180", "confidence": 95.0 },
+          "Sex": { "value": "M", "confidence": 99.0 },
+          "Endorsements": { "value": null, "confidence": null },
+          "Restrictions": { "value": null, "confidence": null },
+          "PersonalNumber": { "value": null, "confidence": null },
+          "PlaceOfBirth": { "value": "NASHUA", "confidence": 90.0 },
+          "VehicleClassifications": { "value": "D", "confidence": 90.0 }
+        }
+      }
+    },
+    {
+      "doc_id": "DOC_005",
+      "doc_type": "ssn",
+      "pages": [13],
+      "doc_pixel_coordinates": {
+        "13": [[140, 110], [540, 110], [540, 260], [140, 260]]
+      },
+      "result_json": {
+        "status": "success",
+        "extracted_fields": {
+          "DocumentNumber": { "value": "XXX-XX-4321", "confidence": 98.0 },
+          "FirstName": { "value": "JOHN", "confidence": 98.0 },
+          "LastName": { "value": "DOE", "confidence": 98.0 },
+          "DateOfIssue": { "value": "2015-05-06", "confidence": 91.6 }
+        }
+      }
+    }
+  ]
+}
