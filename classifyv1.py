@@ -529,3 +529,51 @@ def extract_pixel_coordinates(
     except Exception:
         logging.exception("Unexpected error during pixel coordinate extraction.")
         return None
+
+
+
+=--------------------
+
+
+try:
+        documents = envelope_dict.get("documents_json_data", {})
+
+        for doc_id, doc in documents.items():
+            doc_type = (doc.get("doc_type") or "").lower()
+
+            if doc_type == "paystub":
+                logging.info("Running paystub adaptor for %s", doc_id)
+                try:
+                    # Currently we pass the whole PDF. Later we can restrict to doc["pages"].
+                    extraction = process_paystub(pdf_BYTES)
+                    status = extraction.get("status", "success")
+                    extracted_fields = extraction.get("extracted_fields", {})
+                except Exception as ex:
+                    logging.exception(
+                        "Error running paystub adaptor for %s: %s", doc_id, ex
+                    )
+                    status = "error"
+                    extracted_fields = {}
+
+                # Write into result_json for this document
+                doc["result_json"] = {
+                    "status": status,
+                    "extracted_fields": extracted_fields,
+                }
+            else:
+                # For all non-paystub docs, ensure there is at least a default result_json
+                if not doc.get("result_json"):
+                    doc["result_json"] = {
+                        "status": "not_processed",
+                        "extracted_fields": {},
+                    }
+
+        logging.info(
+            "Envelope after employment enrichment: %s",
+            json.dumps(envelope_dict),
+        )
+    except Exception as e:
+        # Do not kill the function if enrichment fails; classification is still useful.
+        logging.exception(
+            "Error while updating envelope with employment data: %s", e
+        )
