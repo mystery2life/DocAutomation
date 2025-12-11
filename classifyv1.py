@@ -577,3 +577,47 @@ try:
         logging.exception(
             "Error while updating envelope with employment data: %s", e
         )
+
+
+
+
+------------------------------
+
+
+
+import os
+from io import BytesIO
+from pathlib import Path
+from azure.ai.documentintelligence import DocumentIntelligenceClient
+from azure.core.credentials import AzureKeyCredential
+
+PDF_PATH = "./sample_paystub.pdf"
+PAGES = "3"        # try "3", "1-2", "1,3-4", etc.
+MODEL_ID = "prebuilt-payStub.us"
+
+def main():
+    endpoint = os.getenv("AZURE_DI_ENDPOINT")
+    key = os.getenv("AZURE_DI_KEY")
+    if not endpoint or not key:
+        print("Missing AZURE_DI_ENDPOINT / AZURE_DI_KEY")
+        return
+
+    client = DocumentIntelligenceClient(endpoint, AzureKeyCredential(key))
+
+    pdf_path = Path(PDF_PATH)
+    with pdf_path.open("rb") as f:
+        pdf_bytes = f.read()
+
+    poller = client.begin_analyze_document(
+        model_id=MODEL_ID,
+        body=BytesIO(pdf_bytes),
+        pages=PAGES,                       # <-- THIS is what we're testing
+        content_type="application/octet-stream",
+    )
+    result = poller.result()
+    print("✅ DI call succeeded")
+    print("num documents:", len(result.documents))
+
+if __name__ == "__main__":
+    main()
+
