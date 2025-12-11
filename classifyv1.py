@@ -648,3 +648,52 @@ if __name__ == "__main__":
     main()
 
 
+
+
+--------------------------
+
+
+
+
+def process_paystub(file_bytes: bytes, pages: list[int], filename: str = "") -> dict:
+    print(f"[paystub] processing {filename} pages = {pages}")
+
+    # 1) DI structured fields (other stuff like names, dates, etc.)
+    structured = extract_paystub_structured(file_bytes, pages=pages)
+
+    # 2) OCR text + LLM
+    text = extract_read_text(file_bytes, pages=pages)
+    llm_fields = extract_llm_fields(text)
+
+    # 3) Always set these three from LLM (normalize names)
+    for out_key, llm_key in [
+        ("TotalHours", "TotalHoursWorked"),
+        ("AveragePayRate", "AveragePayRate"),
+        ("JobTitle", "JobTitle"),
+    ]:
+        lf = llm_fields.get(llm_key)
+
+        if isinstance(lf, dict):
+            value = lf.get("value")
+            conf = lf.get("confidence", 80.0)
+        else:
+            value = lf
+            conf = 80.0
+
+        structured[out_key] = {
+            "value": value,
+            "confidence": conf,
+        }
+
+    logging.info("out new func:")
+    logging.info({
+        "status": "success",
+        "filename": filename,
+        "extracted_fields": structured,
+    })
+
+    return {
+        "status": "success",
+        "extracted_fields": structured,
+    }
+
