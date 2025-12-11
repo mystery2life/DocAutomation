@@ -591,33 +591,60 @@ from pathlib import Path
 from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.core.credentials import AzureKeyCredential
 
-PDF_PATH = "./sample_paystub.pdf"
-PAGES = "3"        # try "3", "1-2", "1,3-4", etc.
-MODEL_ID = "prebuilt-payStub.us"
+# The PDF exists in the SAME folder as this script
+PDF_PATH = "sample_paystub.pdf"
+
+# Try different page formats:
+# "1"  -> only page 1
+# "1-2" -> pages 1 to 2
+# "1,3" -> pages 1 and 3
+PAGES = "1"      
+
+MODEL_ID = "prebuilt-paystubs"  # OR prebuilt-paystubs.us depending on your setup
+
 
 def main():
+
+    # --- Make sure your environment variables are set ---
     endpoint = os.getenv("AZURE_DI_ENDPOINT")
     key = os.getenv("AZURE_DI_KEY")
+
     if not endpoint or not key:
-        print("Missing AZURE_DI_ENDPOINT / AZURE_DI_KEY")
+        print("❌ Missing AZURE_DI_ENDPOINT or AZURE_DI_KEY environment vars")
         return
 
-    client = DocumentIntelligenceClient(endpoint, AzureKeyCredential(key))
+    # --- Initialize DI client ---
+    client = DocumentIntelligenceClient(
+        endpoint, 
+        AzureKeyCredential(key)
+    )
 
-    pdf_path = Path(PDF_PATH)
-    with pdf_path.open("rb") as f:
+    # --- Read local PDF ---
+    pdf_file = Path(PDF_PATH)
+    if not pdf_file.exists():
+        print(f"❌ File not found: {PDF_PATH}")
+        return
+
+    with pdf_file.open("rb") as f:
         pdf_bytes = f.read()
 
+    print(f"➡️  Testing DI with pages = {PAGES!r}")
+
+    # --- Call DI ---
     poller = client.begin_analyze_document(
         model_id=MODEL_ID,
         body=BytesIO(pdf_bytes),
-        pages=PAGES,                       # <-- THIS is what we're testing
+        pages=PAGES,                      # <-- THIS IS WHAT WE'RE TESTING
         content_type="application/octet-stream",
     )
+
     result = poller.result()
-    print("✅ DI call succeeded")
-    print("num documents:", len(result.documents))
+
+    print("✅ DI call succeeded!")
+    print("📄 Document count:", len(result.documents))
+
 
 if __name__ == "__main__":
     main()
+
 
