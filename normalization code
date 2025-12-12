@@ -1,0 +1,240 @@
+# employment_module/config.py
+
+from typing import Dict, List
+
+PAYSTUB_FIELDS: List[str] = [
+    # DI (16)
+    "EmployeeAddress",
+    "EmployeeName",
+    "EmployeeSSN",
+    "EmployerAddress",
+    "EmployerName",
+    "PayDate",
+    "PayPeriodStartDate",
+    "PayPeriodEndDate",
+    "CurrentPeriodGrossPay",
+    "YearToDateGrossPay",
+    "CurrentPeriodTaxes",
+    "YearToDateTaxes",
+    "CurrentPeriodDeductions",
+    "YearToDateDeductions",
+    "CurrentPeriodNetPay",
+    "YearToDateNetPay",
+
+    # LLM (3)
+    "TotalHours",
+    "AveragePayRate",
+    "JobTitle",
+
+    # Derived (1)
+    "PayFrequency",
+]
+
+PAYSTUB_FIELD_TYPES: Dict[str, str] = {
+    "EmployeeAddress": "address",
+    "EmployeeName": "string",
+    "EmployeeSSN": "string",
+    "EmployerAddress": "address",
+    "EmployerName": "string",
+    "PayDate": "date",
+    "PayPeriodStartDate": "date",
+    "PayPeriodEndDate": "date",
+    "CurrentPeriodGrossPay": "number",
+    "YearToDateGrossPay": "number",
+    "CurrentPeriodTaxes": "number",
+    "YearToDateTaxes": "number",
+    "CurrentPeriodDeductions": "number",
+    "YearToDateDeductions": "number",
+    "CurrentPeriodNetPay": "number",
+    "YearToDateNetPay": "number",
+    "TotalHours": "number",
+    "AveragePayRate": "number",
+    "JobTitle": "string",
+    "PayFrequency": "string",
+}
+
+
+
+-------------------------------
+
+
+
+# employment_module/normalization.py
+
+from __future__ import annotations
+from typing import Any, Dict, Optional
+from datetime import datetime, date
+
+from .config import PAYSTUB_FIELDS, PAYSTUB_FIELD_TYPES
+
+
+def _empty() -> Dict[str, Any]:
+    return {"value": None, "confidence": None}
+
+
+def build_paystub_template() -> Dict[str, Dict[str, Any]]:
+    return {k: _empty() for k in PAYSTUB_FIELDS}
+
+
+def _clamp_conf(conf: Any) -> Optional[float]:
+    if conf is None:
+        return None
+    try:
+        c = float(conf)
+        if c < 0:
+            return 0.0
+        if c > 100:
+            return 100.0
+        return c
+    except Exception:
+        return None
+
+
+def _to_float(v: Any) -> Optional[float]:
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+
+    s = str(v).strip()
+    if not s:
+        return None
+
+    # remove common formatting
+    s = s.replace("$", "").replace(",", "").replace("%", "")
+    if s.startswith("(") and s.endswith(")"):
+        s = "-" + s[1:-1].strip()
+
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _to_string(v: Any) -> Optional[str]:
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s if s else None
+
+
+def _to_iso_date(v: Any) -> Optional[str]:
+    if v is None:
+        return None
+
+    if isinstance(v, date) and not isinstance(v, datetime):
+        return v.isoformat()
+    if isinstance(v, datetime):
+        return v.date().isoformat()
+
+    s = str(v).strip()
+    if not s:
+        return None
+
+    # add formats as needed
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%Y/%m/%d", "%d %b %Y", "%d %B %Y"):
+        try:
+            return datetime.strptime(s, fmt).date().isoformat()
+        except ValueError:
+            pass
+
+    return None
+
+
+def _normalize_value(field: str, value: Any) -> Any:
+    ftype = PAYSTUB_FIELD_TYPES.get(field)
+
+    if ftype == "number":
+        return _to_float(value)
+    if ftype == "date":
+        return _to_iso_date(value)
+    if ftype == "string":
+        return _to_string(value)
+    if ftype == "address":
+        # keep DI structured address dict if present
+        if isinstance(value, dict):
+            return value
+        return _to_string(value)
+
+    return value
+
+
+def _normalize_field_obj(field: str, obj: Any) -> Dict[str, Any]:
+    """
+    Accepts:
+      - {"value": X, "confidence": Y}
+      - {"value": X}   (confidence missing)
+      - raw X
+    Returns canonical {"value": ..., "confidence": ...}
+    """
+    if isinstance(obj, dict):
+        value = obj.get("value", None)
+        conf = obj.get("confidence", None)
+    else:
+        value = obj
+        conf = None
+
+    return {
+        "value": _normalize_value(field, value),
+        "confidence": _clamp_conf(conf),
+    }
+
+
+def normalize_paystub(
+    structured_di: Dict[str, Any],
+    llm_fields: Dict[str, Any],
+) -> Dict[str, Dict[str, Any]]:
+    """
+    - Start with fixed template
+    - Fill from DI (structured_di already in desired {value, confidence})
+    - Overwrite/Fill the 3 LLM fields (TotalHours, AveragePayRate, JobTitle)
+      ONLY if DI value is missing/None
+    - Keep PayFrequency null for now
+    """
+    out = build_paystub_template()
+
+    # 1) Fill DI fields
+    for field, obj in (structured_di or {}).items():
+        if field in out:
+            out[field] = _normalize_field_obj(field, obj)
+
+    # 2) Fill LLM fields (only if DI is missing)
+    for field in ("TotalHours", "AveragePayRate", "JobTitle"):
+        if field not in out:
+            continue
+        if out[field].get("value") is None:
+            if llm_fields and field in llm_fields:
+                out[field] = _normalize_field_obj(field, llm_fields[field])
+
+    # 3) Derived (later). For now keep nulls
+    # out["PayFrequency"] stays {"value": None, "confidence": None}
+
+    return out
+
+
+
+
+---------------------------
+
+
+
+from employment_module.normalization import normalize_paystub
+
+def process_paystub(file_bytes: bytes, pages: list[int], filename: str = "") -> dict:
+    print(f"[paystub] processing {filename} pages = {pages}")
+
+    structured = extract_paystub_structured(file_bytes, pages=pages)
+    print("Structured fields:", structured.keys())
+
+    text = extract_read_text(file_bytes, pages=pages)
+    llm_fields = extract_llm_fields(text)
+    print("LLM fields:", llm_fields)
+
+    # ✅ NEW: normalize into fixed template (all 20 fields always present)
+    normalized_fields = normalize_paystub(structured, llm_fields)
+
+    return {
+        "status": "success",
+        # "filename": filename,
+        "extracted_fields": normalized_fields
+    }
