@@ -238,3 +238,369 @@ def process_paystub(file_bytes: bytes, pages: list[int], filename: str = "") -> 
         # "filename": filename,
         "extracted_fields": normalized_fields
     }
+
+
+
+
+----------------------------------
+
+
+
+# ev_normalization.py
+from __future__ import annotations
+
+import re
+from datetime import datetime
+from typing import Any, Dict, Optional
+
+
+# ---------------------------
+# Helpers (self-contained)
+# ---------------------------
+
+_ONLY_DIGITS = re.compile(r"\D+")
+_MONEY_RX = re.compile(r"[^\d\.,-]+")
+
+
+def squash_spaces(s: Any) -> Optional[str]:
+    """Collapse whitespace/newlines; return None if empty."""
+    if s is None:
+        return None
+    txt = " ".join(str(s).split())
+    return txt or None
+
+
+def to_float(x: Any) -> Optional[float]:
+    """Parse a number-like value to float. Handles '40', '40.0', '40 hours'."""
+    if x is None:
+        return None
+    if isinstance(x, (int, float)):
+        return float(x)
+
+    s = squash_spaces(x)
+    if not s:
+        return None
+
+    # Try direct float
+    try:
+        return float(s)
+    except Exception:
+        pass
+
+    # Extract first numeric token
+    m = re.search(r"-?\d+(?:\.\d+)?", s)
+    if not m:
+        return None
+    try:
+        return float(m.group(0))
+    except Exception:
+        return None
+
+
+def clean_money(s: Any) -> Optional[str]:
+    """
+    Normalize currency-ish strings:
+    "$3, 461. 54" -> "$3,461.54"
+    "6500" -> "$6500" (keeps as string; you can float later if needed)
+    """
+    s = squash_spaces(s)
+    if not s:
+        return None
+    # remove non money chars except digits, dot, comma, minus
+    s = _MONEY_RX.sub("", s)
+
+    # remove spaces
+    s = s.replace(" ", "")
+
+    # If there are multiple commas/dots, keep them and let conversion handle
+    if not s:
+        return None
+
+    if not s.startswith("$"):
+        s = "$" + s
+    return s
+
+
+def parse_date(s: Any) -> Optional[str]:
+    """
+    Convert common date formats to YYYY-MM-DD.
+    """
+    txt = squash_spaces(s)
+    if not txt:
+        return None
+    if len(txt) < 6:  # crude guard
+        return None
+
+    fmts = [
+        "%m/%d/%Y",
+        "%m-%d-%Y",
+        "%Y-%m-%d",
+        "%m/%d/%y",
+        "%m-%d-%y",
+        "%d-%b-%Y",
+        "%d %b %Y",
+        "%b %d %Y",
+        "%B %d %Y",
+        "%b %d, %Y",
+        "%B %d, %Y",
+    ]
+    for f in fmts:
+        try:
+            dt = datetime.strptime(txt, f)
+            return dt.strftime("%Y-%m-%d")
+        except Exception:
+            pass
+
+    # fallback: extract digits and attempt M/D/Y
+    nums = re.findall(r"\d{1,4}", txt)
+    if len(nums) >= 3:
+        try:
+            mm = int(nums[0])
+            dd = int(nums[1])
+            yy = int(nums[2])
+            if yy < 100:
+                yy = 2000 + yy
+            dt = datetime(year=yy, month=mm, day=dd)
+            return dt.strftime("%Y-%m-%d")
+        except Exception:
+            return None
+
+    return None
+
+
+def titlecase_job(s: Any) -> Optional[str]:
+    """Simple title-casing preserving short ALLCAPS tokens like CEO."""
+    txt = squash_spaces(s)
+    if not txt:
+        return None
+    parts = txt.split()
+    out = []
+    for w in parts:
+        if w.isupper() and len(w) <= 4:
+            out.append(w)
+        else:
+            out.append(w.capitalize())
+    return " ".join(out)
+
+
+def digits_only(s: Any) -> Optional[str]:
+    if s is None:
+        return None
+    txt = squash_spaces(s)
+    if not txt:
+        return None
+    d = _ONLY_DIGITS.sub("", txt)
+    return d or None
+
+
+# ---------------------------
+# Template
+# ---------------------------
+
+def build_ev_template() -> Dict[str, Dict[str, Any]]:
+    """
+    Template fields from your Excel:
+      EmployeeName
+      SSN
+      HireDate
+      JobTitle
+      EIN
+      FirstPayCheckDate
+      CompanyName
+      CompanyAddress
+      AverageWorkingHours
+      EmploymentEndDate
+    """
+    def _empty():
+        return {"value": None, "confidence": None}
+
+    return {
+        "EmployeeName": _empty(),
+        "SSN": _empty(),
+        "HireDate": _empty(),
+        "JobTitle": _empty(),
+        "EIN": _empty(),
+        "FirstPayCheckDate": _empty(),
+        "CompanyName": _empty(),
+        "CompanyAddress": _empty(),
+        "AverageWorkingHours": _empty(),
+        "EmploymentEndDate": _empty(),
+    }
+
+
+# ---------------------------
+# Per-field normalizers
+# ---------------------------
+
+def norm_text(item: dict) -> dict:
+    v = squash_spaces((item or {}).get("value"))
+    return {"value": v, "confidence": (item or {}).get("confidence")}
+
+def norm_job_title(item: dict) -> dict:
+    v = titlecase_job((item or {}).get("value"))
+    return {"value": v, "confidence": (item or {}).get("confidence")}
+
+def norm_date(item: dict) -> dict:
+    v = parse_date((item or {}).get("value"))
+    return {"value": v, "confidence": (item or {}).get("confidence")}
+
+def norm_ein(item: dict) -> dict:
+    d = digits_only((item or {}).get("value"))
+    if not d or len(d) != 9:
+        return {"value": None, "confidence": (item or {}).get("confidence")}
+    return {"value": d, "confidence": (item or {}).get("confidence")}
+
+def norm_ssn(item: dict) -> dict:
+    raw = squash_spaces((item or {}).get("value"))
+    # allow masked or digits; you can hard-validate later if needed
+    return {"value": raw, "confidence": (item or {}).get("confidence")}
+
+def norm_hours(item: dict) -> dict:
+    v = to_float((item or {}).get("value"))
+    return {"value": v, "confidence": (item or {}).get("confidence")}
+
+
+FIELD_NORMALIZERS = {
+    "EmployeeName": norm_text,
+    "CompanyName": norm_text,
+    "CompanyAddress": norm_text,
+    "SSN": norm_ssn,
+    "EIN": norm_ein,
+    "HireDate": norm_date,
+    "EmploymentEndDate": norm_date,
+    "FirstPayCheckDate": norm_date,
+    "JobTitle": norm_job_title,
+    "AverageWorkingHours": norm_hours,
+}
+
+
+# ---------------------------
+# DI key mapping -> canonical template keys
+# Update these to match your EV DI model keys
+# ---------------------------
+
+EV_KEY_MAP = {
+    # If DI keys already match template keys, keep as-is:
+    "EmployeeName": "EmployeeName",
+    "SSN": "SSN",
+    "HireDate": "HireDate",
+    "JobTitle": "JobTitle",
+    "EIN": "EIN",
+    "FirstPayCheckDate": "FirstPayCheckDate",
+    "CompanyName": "CompanyName",
+    "CompanyAddress": "CompanyAddress",
+    "AverageWorkingHours": "AverageWorkingHours",
+    "EmploymentEndDate": "EmploymentEndDate",
+
+    # If your model uses different names, map them here:
+    # "EmployerName": "CompanyName",
+    # "EmployerAddress": "CompanyAddress",
+    # "AvgHours": "AverageWorkingHours",
+    # "EndDate": "EmploymentEndDate",
+}
+
+
+def normalize_ev(structured_di: Optional[Dict[str, dict]]) -> Dict[str, Dict[str, Any]]:
+    """
+    structured_di format:
+      { "SomeDIField": {"value":..., "confidence":...}, ... }
+
+    returns:
+      template-filled dict with normalized values.
+    """
+    out = build_ev_template()
+
+    for di_key, obj in (structured_di or {}).items():
+        canonical = EV_KEY_MAP.get(di_key)
+        if not canonical or canonical not in out:
+            continue
+
+        fn = FIELD_NORMALIZERS.get(canonical)
+        out[canonical] = fn(obj) if fn else {
+            "value": (obj or {}).get("value"),
+            "confidence": (obj or {}).get("confidence"),
+        }
+
+    return out
+
+
+--------------------------------
+
+
+# ev_adaptor.py
+import os, sys
+from io import BytesIO
+from dotenv import load_dotenv
+from azure.core.credentials import AzureKeyCredential
+from azure.ai.documentintelligence import DocumentIntelligenceClient
+
+from Employment_Verification_Module.normalize.ev_normalization import normalize_ev
+
+load_dotenv()
+
+AZURE_DI_ENDPOINT = os.getenv("AZURE_DI_ENDPOINT")
+AZURE_DI_KEY = os.getenv("AZURE_DI_KEY")
+EV_MODEL_ID = os.getenv("EV_MODEL_ID", "EmploymentVerificationExtractor4")
+
+if not AZURE_DI_ENDPOINT or not AZURE_DI_KEY:
+    raise RuntimeError("Missing AZURE_DI_ENDPOINT or AZURE_DI_KEY")
+
+di_client = DocumentIntelligenceClient(
+    endpoint=AZURE_DI_ENDPOINT,
+    credential=AzureKeyCredential(AZURE_DI_KEY),
+)
+
+def _begin_analyze(model_id: str, file_bytes: bytes, **kwargs):
+    # handles SDK body/document param differences
+    try:
+        return di_client.begin_analyze_document(model_id=model_id, document=BytesIO(file_bytes), **kwargs)
+    except TypeError:
+        return di_client.begin_analyze_document(model_id=model_id, body=BytesIO(file_bytes), **kwargs)
+
+def extract_ev_structured(file_bytes: bytes, pages: list[int] | None = None) -> dict:
+    kwargs = {"content_type": "application/octet-stream"}
+    if pages:
+        # Convert [3,4] -> "3,4" ; if your pages are 1-indexed already keep as-is
+        kwargs["pages"] = ",".join(str(p) for p in pages)
+
+    poller = _begin_analyze(EV_MODEL_ID, file_bytes, **kwargs)
+    result = poller.result()
+
+    doc = result.documents[0] if getattr(result, "documents", None) else None
+    out = {}
+
+    if doc and getattr(doc, "fields", None):
+        for key, field in doc.fields.items():
+            out[str(key)] = {
+                "value": getattr(field, "content", None),
+                "confidence": round((getattr(field, "confidence", 0) or 0) * 100, 2),
+            }
+
+    return out
+
+def process_ev(file_bytes: bytes, pages: list[int] | None = None, filename: str = "") -> dict:
+    structured = extract_ev_structured(file_bytes, pages=pages)
+    normalized = normalize_ev(structured)
+
+    return {
+        "status": "success",
+        "extracted_fields": normalized,  # <-- TEMPLATE output
+    }
+
+
+-----------------
+
+
+from Employment_Verification_Module.ev_adaptor import process_ev
+
+def process_one_doc(doc_id: str, meta: dict, file_bytes: bytes):
+    doc_type = meta.get("doc_type")
+    pages = meta.get("pages")  # your screenshot shows pages: [..]
+
+    if doc_type == "employment_verification":
+        result_json = process_ev(file_bytes, pages=pages)
+        meta["result_json"] = result_json
+        return meta
+
+    return meta
+
