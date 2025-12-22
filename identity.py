@@ -417,3 +417,132 @@ Security (Key Vault, RBAC)
 Notes on which components scale linearly with document volume
 
 Please assume East US region and production workload.
+
+
+--------------------------------------
+
+
+Community Forms – Azure Costing Summary
+1. Purpose of This Document
+
+This document provides a high-level annual cost estimate for processing Community Forms using the existing Azure-based document processing platform.
+
+The costing is derived from the internal Excel pricing calculator and reflects incremental costs only, after removing infrastructure already shared with Paystub and Identity document processing.
+
+2. Scope of Community Forms Processing
+
+The Community Forms solution includes:
+
+Document ingestion
+
+Classification
+
+Custom extraction using Azure AI Document Intelligence
+
+Asynchronous processing using Service Bus
+
+Storage of documents and extracted metadata
+
+Monitoring, logging, and security controls
+
+All processing is executed within the existing microservice architecture.
+
+3. Document Volumes (Annual)
+Document Type	Extraction Type	PDFs per Year
+Exemption Request Form	Custom	108,000
+Medically Frail Certification Form	Custom	24,000
+CE Good Cause Form	Custom	108,000
+Monthly Activity Form	Custom	54,000
+Ongoing Activity Form	Custom	54,000
+Total		348,000 PDFs / year
+
+Assumption: Each PDF may contain multiple documents and is processed through classification and custom extraction.
+
+4. Cost Breakdown (Annual)
+4.1 Classification and Extraction Costs
+Service	Annual Cost (USD)
+Classification	5,076
+Custom Extraction (Document Intelligence)	24,120
+Subtotal	29,196
+4.2 Compute Infrastructure Costs
+
+Includes only incremental compute required for Community Forms.
+
+Component	Annual Cost (USD)
+Web App (Fixed)	1,200
+Azure Function Apps	674.88
+Service Bus	118.26
+Subtotal	1,993.14
+4.3 Monitoring & Logging
+Component	Annual Cost (USD)
+Azure Monitor (Logs & Metrics)	132.80
+4.4 Storage
+Component	Annual Cost (USD)
+Blob Storage	30
+Azure SQL Database	1,392
+Subtotal	1,422
+4.5 Security
+Component	Annual Cost (USD)
+Azure Key Vault	60
+RBAC	60
+Subtotal	120
+5. Total Annual Cost (Before Overlap Adjustment)
+Category	Cost (USD)
+Classification & Extraction	29,196
+Compute Infrastructure	1,993.14
+Monitoring	132.80
+Storage	1,422
+Security	120
+Total	32,863.90
+6. Shared Infrastructure Cost Adjustment
+
+The Community Forms solution reuses existing infrastructure already provisioned for:
+
+Paystub processing
+
+Identity document processing
+
+As a result, the following costs are not double-counted:
+
+Web App baseline capacity
+
+Core Function App runtime
+
+Shared monitoring workspace
+
+Shared security services
+
+Overlap Deduction
+
+Overlapping cost removed: USD 2,133
+
+7. Final Annual Incremental Cost
+
+Final Community Forms Annual Cost (Incremental):
+
+✅ USD 30,730.90 per year
+8. Key Assumptions
+
+Costs are based on Pay-As-You-Go pricing in a standard US region.
+
+Azure Function Apps run on Consumption plan.
+
+Average document processing time ≈ 30 seconds per document.
+
+Logs retained for 30 days.
+
+Blobs retained for short-term processing, not long-term archival.
+
+Identity-based access is used (no Private Endpoints).
+
+9. Conclusion
+
+This estimate represents a conservative and defensible annual cost for Community Forms processing, leveraging:
+
+Existing shared infrastructure
+
+Serverless compute
+
+Usage-based AI services
+
+The model ensures cost efficiency while maintaining scalability and operational visibility.
