@@ -323,3 +323,97 @@ def process_identity_document(file_bytes: bytes, doc_type: str, filename: str | 
         "doc_type": doc_type,
         "extracted_fields": filled,
     }
+
+
+--------------------------------
+
+
+I am building a production-grade document processing microservices system on Azure. Please help me estimate monthly and yearly costs and recommend appropriate SKUs.
+
+Architecture overview:
+
+A frontend Web App that receives document upload requests (PDFs).
+
+The Web App sends metadata messages to Azure Service Bus.
+
+PDFs are stored temporarily in Azure Blob Storage (Hot tier).
+
+A classifier Function App is triggered by Service Bus, reads the PDF from Blob, calls Azure AI Document Intelligence (classification), and routes messages to downstream queues based on document type.
+
+Multiple downstream Function Apps (employment verification, identity documents, etc.) process documents from their respective Service Bus queues.
+
+Each processing Function App:
+
+Reads PDF from Blob Storage
+
+Calls Azure AI Document Intelligence (1–3 calls per document)
+
+Writes structured results to Azure SQL Database
+
+Publishes a final message to Service Bus consumed by MuleSoft
+
+Workload assumptions:
+
+Total PDFs per year: ~180,000
+
+Average documents per PDF after classification: 3
+
+Total document processing executions per year: ~540,000
+
+Average PDF size: 10 MB
+
+Average Function execution time: ~30 seconds
+
+Function memory allocation: ~1.5 GB
+
+Processing is queue-based and bursty (batch processing every few minutes, not continuous high traffic)
+
+Azure services used:
+
+Azure App Service (Web App) – Basic or Premium tier
+
+Azure Functions (Consumption Plan)
+
+Azure Service Bus (Standard)
+
+Azure Blob Storage (Hot, LRS)
+
+Azure SQL Database (General Purpose)
+
+Azure AI Document Intelligence
+
+Azure Monitor / Application Insights
+
+Azure Key Vault
+
+Security model:
+
+Managed Identity + RBAC
+
+OAuth-based internal service-to-service access
+
+No Private Endpoints or VNET isolation
+
+What I need:
+
+Recommended SKUs for each service
+
+Monthly and yearly cost estimates
+
+Cost breakdown by:
+
+AI services
+
+Compute (Web App + Function Apps)
+
+Service Bus
+
+Monitoring & logging
+
+Storage (Blob + SQL)
+
+Security (Key Vault, RBAC)
+
+Notes on which components scale linearly with document volume
+
+Please assume East US region and production workload.
