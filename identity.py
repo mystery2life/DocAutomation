@@ -546,3 +546,301 @@ Serverless compute
 Usage-based AI services
 
 The model ensures cost efficiency while maintaining scalability and operational visibility.
+
+
+
+    -----------------------------------------------------------------------
+
+
+    1. Project Overview
+1.1 Purpose of the Document
+
+The purpose of this Change Control Document (CCD) is to describe the design, architecture, and implementation details of the Document Intelligence Processing Platform developed to support automated ingestion, classification, extraction, and aggregation of structured data from inbound documents.
+
+This document outlines:
+
+Business objectives
+
+System components
+
+End-to-end processing flows
+
+Architectural decisions
+
+Tools and technologies used
+
+The CCD serves as a formal reference for stakeholders, auditors, architects, and implementation teams.
+
+1.2 Expected Business Outcomes
+
+The Document Intelligence platform is designed to achieve the following outcomes:
+
+Automated document intake with minimal manual intervention
+
+Accurate classification of multi-document PDFs into logical document types
+
+Structured data extraction from complex documents such as:
+
+Employment Verification forms
+
+Pay Stubs
+
+Bank Statements
+
+Identity documents
+
+Improved processing throughput and scalability
+
+Reduced operational burden on case workers and downstream systems
+
+Audit-ready traceability of document processing decisions
+
+1.3 Stakeholders & Project Team
+
+The project involves collaboration across technical, functional, and business teams.
+
+Role	Description
+Program Sponsor	Oversees program objectives and delivery
+Business Stakeholders	Define document processing requirements
+Solution Architect	Defines system architecture and design
+Data / AI Engineers	Implement classification and extraction logic
+Cloud Engineers	Manage Azure infrastructure and deployment
+QA / Testing Team	Validate functional and non-functional requirements
+1.4 Scope of the Solution
+In Scope
+
+PDF ingestion and processing
+
+Document classification
+
+Page-level document splitting
+
+Domain-specific extraction (Employment, Identity, Bank, Paystub)
+
+Confidence-aware structured output
+
+Fan-out / fan-in orchestration
+
+Azure-native deployment
+
+Out of Scope
+
+Manual data correction workflows
+
+UI-based document review
+
+Third-party downstream integrations beyond structured output delivery
+
+3. Business Requirements
+3.1 Business Problem Statement
+
+The organization processes a high volume of inbound documents containing mixed document types bundled into single PDF files. Manual review and data entry are time-consuming, error-prone, and difficult to scale.
+
+There is a need for an automated, reliable, and auditable system to:
+
+Identify document types
+
+Extract key data fields
+
+Preserve traceability across document splits
+
+Support future extensibility
+
+3.2 Functional Requirements
+Req ID	Business Requirement
+BR-01	The system shall ingest multi-page PDF documents
+BR-02	The system shall classify document types automatically
+BR-03	The system shall split documents by page ranges
+BR-04	The system shall extract structured data per document type
+BR-05	The system shall capture confidence scores for extracted fields
+BR-06	The system shall support parallel processing
+BR-07	The system shall aggregate results deterministically
+3.3 Non-Functional Requirements
+Category	Requirement
+Scalability	Support concurrent document processing
+Reliability	Isolate failures at document-split level
+Security	Enforce authenticated API access
+Observability	Provide traceability via correlation IDs
+Maintainability	Modular microservice architecture
+Performance	Predictable latency per document
+3.4 Compliance & Audit Considerations
+
+All document processing decisions must be traceable
+
+Intermediate outputs must be persisted for audit replay
+
+No destructive modification of original documents
+
+Confidence scores retained for compliance review
+
+7. Document Intelligence Components
+
+This section describes the core components that comprise the Document Intelligence platform and their responsibilities within the overall system.
+
+7.1 Component Overview
+
+The Document Intelligence platform consists of the following major components:
+
+Component	Overview
+Ingestion API	Entry point for document intake
+Classification Service	Identifies document types
+Splitter	Creates logical document splits
+Domain Extractors	Extract structured data
+Aggregation Engine	Combines split results
+Storage Layer	Persists intermediate and final outputs
+Messaging Layer	Orchestrates async execution
+7.2 Ingestion & Entry Point
+
+The Ingestion Service acts as the system entry point.
+
+Responsibilities:
+
+Accept inbound document payloads
+
+Validate request structure
+
+Generate a parent_uuid for correlation
+
+Persist raw documents to Blob Storage
+
+Emit orchestration events to Service Bus
+
+This component ensures:
+
+Decoupling from downstream processing
+
+Reliable retry behavior
+
+Idempotent request handling
+
+7.3 Classification Component
+
+The Classification Service is responsible for identifying document types within a PDF.
+
+Key characteristics:
+
+Operates on page-level content
+
+Uses Azure Document Intelligence classifiers
+
+Produces classification labels and confidence scores
+
+Outputs structured classification metadata
+
+Classification results drive downstream routing decisions.
+
+7.4 Document Splitting Component
+
+The Splitter isolates individual logical documents from a multi-document PDF.
+
+Design principles:
+
+Page-range based splitting
+
+Immutable original PDF
+
+Deterministic output
+
+Stateless execution
+
+Each split is assigned a unique split_doc_id.
+
+7.5 Domain-Specific Extraction Components
+
+Separate extraction services are implemented per document domain:
+
+Domain	Extractor
+Employment	Employment Verification Extractor
+Identity	Identity Document Extractor
+Paystub	Paystub Extractor
+Bank	Bank Statement Extractor
+
+Each extractor:
+
+Processes exactly one split document
+
+Produces structured, normalized output
+
+Captures confidence scores
+
+Operates independently of other domains
+
+7.6 Aggregation Engine
+
+The Aggregation Engine performs deterministic fan-in of split-level results.
+
+Responsibilities:
+
+Detect completion of all expected splits
+
+Merge structured outputs
+
+Produce final response payload
+
+Ensure ordering and completeness
+
+Aggregation is triggered only when all required splits have completed successfully.
+
+7.7 Messaging & Orchestration Layer
+
+Azure Service Bus is used to:
+
+Enable asynchronous execution
+
+Support parallel processing
+
+Provide fault isolation
+
+Allow retry and DLQ handling
+
+Each message contains sufficient context to enable stateless processing.
+
+7.8 Storage & Persistence Layer
+Storage Type	Purpose
+Blob Storage	Raw and reconstructed PDFs
+SQL Database	Intermediate and final results
+Logs	Observability and audit
+
+Storage design supports:
+
+Replayability
+
+Debugging
+
+Regulatory audit requirements
+
+7.9 Security & Access Control
+
+OAuth-based authentication
+
+Azure AD protected APIs
+
+Role-based access where applicable
+
+No public unauthenticated endpoints
+
+7.10 Extensibility Considerations
+
+The architecture supports:
+
+Adding new document types
+
+Plug-and-play extractors
+
+Model upgrades
+
+Policy-driven routing logic
+
+7.11 Design Guarantees
+
+The system guarantees:
+
+No cross-document contamination
+
+Deterministic outputs
+
+Idempotent processing
+
+Failure isolation
+
+Horizontal scalability
