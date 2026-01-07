@@ -844,3 +844,31 @@ Idempotent processing
 Failure isolation
 
 Horizontal scalability
+
+
+import re
+
+ONLY_DASHES = re.compile(r"^[-\s_]+$")
+
+def norm_ssn(item: dict) -> dict:
+    raw = squash_spaces((item or {}).get("value"))
+    conf = (item or {}).get("confidence")
+
+    if not raw:
+        return {"value": None, "confidence": conf}
+
+    # Remove spaces for checks
+    s = raw.replace(" ", "")
+
+    # Case 1: just dashes / underscores ( "--", "- -", "___" )
+    if ONLY_DASHES.match(s):
+        return {"value": None, "confidence": conf}
+
+    # Case 2: length too small to be meaningful
+    digits = re.sub(r"\D", "", s)
+    if len(digits) == 0:
+        return {"value": None, "confidence": conf}
+
+    # Otherwise keep it (masked or real)
+    return {"value": raw, "confidence": conf}
+
