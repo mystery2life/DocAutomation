@@ -872,3 +872,42 @@ def norm_ssn(item: dict) -> dict:
     # Otherwise keep it (masked or real)
     return {"value": raw, "confidence": conf}
 
+
+def _find_largest_rectangle(img: np.ndarray):
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    edges = cv2.Canny(gray, 50, 150)
+    edges = cv2.dilate(edges, np.ones((3, 3), np.uint8), 1)
+
+    contours, _ = cv2.findContours(
+        edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+
+    best_cnt = None
+    best_area = 0
+
+    for cnt in contours:
+        x, y, w, h = cv2.boundingRect(cnt)
+        area = w * h
+
+        # filter out noise
+        if area > best_area and w > 100 and h > 50:
+            best_area = area
+            best_cnt = cnt
+
+    if best_cnt is None:
+        return None
+
+    x, y, w, h = cv2.boundingRect(best_cnt)
+
+    # build a REAL rectangle
+    return np.array([
+        [x, y],           # top-left
+        [x + w, y],       # top-right
+        [x + w, y + h],   # bottom-right
+        [x, y + h]        # bottom-left
+    ], dtype=np.float32)
+
+quad = _find_largest_rectangle(img)
+
