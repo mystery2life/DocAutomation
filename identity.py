@@ -909,5 +909,133 @@ def _find_largest_rectangle(img: np.ndarray):
         [x, y + h]        # bottom-left
     ], dtype=np.float32)
 
+
+
+
+            
+
+import re
+
+PREFIXES = {
+    "mr", "mrs", "ms", "miss", "dr", "prof", "sir", "madam", "rev"
+}
+
+SUFFIXES = {
+    "jr", "sr", "ii", "iii", "iv", "phd", "md", "esq"
+}
+
+def parse_name(full_name: str):
+    if not full_name or not full_name.strip():
+        return {
+            "prefix": None,
+            "first_name": None,
+            "middle_name": None,
+            "last_name": None,
+            "suffix": None
+        }
+
+    # Normalize
+    name = re.sub(r"[.,]", "", full_name.strip())
+    parts = name.split()
+
+    prefix = None
+    suffix = None
+
+    # Check prefix
+    if parts and parts[0].lower() in PREFIXES:
+        prefix = parts.pop(0)
+
+    # Check suffix
+    if parts and parts[-1].lower() in SUFFIXES:
+        suffix = parts.pop(-1)
+
+    first_name = None
+    middle_name = None
+    last_name = None
+
+    if len(parts) == 1:
+        first_name = parts[0]
+
+    elif len(parts) == 2:
+        first_name, last_name = parts
+
+    elif len(parts) >= 3:
+        first_name = parts[0]
+        last_name = parts[-1]
+        middle_name = " ".join(parts[1:-1])
+
+    return {
+        "prefix": prefix,
+        "first_name": first_name,
+        "middle_name": middle_name,
+        "last_name": last_name,
+        "suffix": suffix
+    }
+
+import probablepeople
+
+def parse_name_probable(full_name: str):
+    try:
+        parsed, _ = probablepeople.parse(full_name)
+
+        out = {}
+        for value, label in parsed:
+            out[label] = out.get(label, "") + (" " if label in out else "") + value
+
+        return {
+            "prefix": out.get("Prefix"),
+            "first_name": out.get("GivenName"),
+            "middle_name": out.get("MiddleName"),
+            "last_name": out.get("Surname"),
+            "suffix": out.get("Suffix")
+        }
+
+    except probablepeople.RepeatedLabelError:
+        return None
+
+from nameparser import HumanName
+
+def parse_name_py(full_name: str):
+    name = HumanName(full_name)
+
+    return {
+        "prefix": name.title or None,
+        "first_name": name.first or None,
+        "middle_name": name.middle or None,
+        "last_name": name.last or None,
+        "suffix": name.suffix or None
+    }
+
+import spacy
+
+nlp = spacy.load("en_core_web_sm")
+
+def parse_name_with_nlp(full_name: str):
+    doc = nlp(full_name)
+    tokens = [t.text for t in doc if not t.is_punct]
+
+    return parse_name(" ".join(tokens))
+
+
+
+
+
+names = [
+    "Dr. John A. Smith Jr.",
+
+]
+
+for n in names:
+    print(n, "logic based", "=>", parse_name(n))
+
+
+
+for n in names:
+    print(n, "=>","Python Module", parse_name_py(n))
+
+for n in names:
+    print(n, "=>", "NLP", parse_name_with_nlp(n))
+
+
 quad = _find_largest_rectangle(img)
 
