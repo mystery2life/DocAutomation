@@ -1037,5 +1037,319 @@ for n in names:
     print(n, "=>", "NLP", parse_name_with_nlp(n))
 
 
+
+import json
+from io import BytesIO
+from azure.core.credentials import AzureKeyCredential
+from azure.ai.documentintelligence import DocumentIntelligenceClient
+from azure.ai.documentintelligence.models import DocumentAnalysisFeature
+from openai import AzureOpenAI
+
+# --- Azure OCR and Document Intelligence ---
+AZURE_OCR_ENDPOINT = "https://venka.cognitiveservices.azure.com/"
+AZURE_OCR_KEY = "FmA8C0l5UHynz2tNCdA2gMXmLJAOsCpjp2eWncyiPvHZHgAPe3QbJQQJ99BEACYeBjFXJ3w3AAALACOGYitX"
+
+ocr_client = DocumentIntelligenceClient(
+    endpoint=AZURE_OCR_ENDPOINT,
+    credential=AzureKeyCredential(AZURE_OCR_KEY)
+)
+
+# --- Azure OpenAI ---
+AZURE_OPENAI_KEY = "36BLOdl5AfrHTpOWCwMwUHRwVJePxq6JAgVosopBPo0pGCfoOFyEJQQJ99BFACYeBjFXJ3w3AAABACOGlMcW"
+AZURE_OPENAI_ENDPOINT = "https://venka-openai.openai.azure.com/"
+AZURE_OPENAI_DEPLOYMENT = "gpt-4o"
+AZURE_OPENAI_API_VERSION = "2024-02-15-preview"
+
+openai_client = AzureOpenAI(
+    api_key=AZURE_OPENAI_KEY,
+    api_version=AZURE_OPENAI_API_VERSION,
+    azure_endpoint=AZURE_OPENAI_ENDPOINT
+)
+
+EXTRACTION_PROMPT = """
+You extract structured data from birth certificates.
+
+Return ONLY valid JSON (no markdown, no explanations, no extra text).
+The JSON must contain exactly the following 5 keys.
+Each key must map to an object with this shape:
+{{
+  "value": <string or null>,
+  "confidence": <number from 0 to 100>
+}}
+
+Keys:
+- name
+- dob
+- gender
+- place_of_birth
+- citizenship_indication
+
+General Rules:
+- If a field is not clearly present or cannot be confidently inferred, set:
+  {{ "value": null, "confidence": 0 }}
+- Do NOT invent or guess values.
+- Use values as written in the document, except for the light normalization rules below.
+- Do not include any keys other than the 5 listed.
+- Do not include explanations outside the JSON.
+
+Light Normalization Rules (apply only these):
+
+1) gender
+- Normalize to exactly: "male", "female", or "other" if the document uses variants like:
+  "M", "F", "MALE", "FEMALE", "Boy", "Girl".
+- If unclear or not present, use:
+  {{ "value": null, "confidence": 0 }}
+
+2) dob
+- Return the date exactly as written in the document (no reformatting).
+- Look for labels like: "Date of Birth", "DOB", "Born", "Birth Date".
+
+3) name
+- Use the child’s full name if available (first + middle + last).
+- Prefer names near labels like:
+  "Name of Child", "Child’s Name", "Name at Birth".
+- Do NOT use parent names.
+- If multiple name candidates exist, choose the most official-looking one.
+
+4) place_of_birth
+- Prefer city + state (or city + country) if available.
+- Otherwise return the most specific location string present.
+- Look for labels like:
+  "Place of Birth", "City of Birth", "County of Birth", "Born in".
+
+citizenship_indication Rules:
+- Use "US citizen" only if BOTH are true:
+  - The document is clearly a U.S. birth certificate
+    (e.g., issued by a U.S. state or county authority), AND
+  - The place of birth is in the United States.
+- Use "non-US citizen" only if the document clearly indicates foreign birth.
+- Otherwise set:
+  {{ "value": null, "confidence": 0 }}
+
+Confidence Scoring Rules (0–100):
+
+- 90–100:
+  Field is explicitly labeled and clearly present
+  (e.g., "Date of Birth: 01/02/2000").
+
+- 70–89:
+  Field is present but with minor ambiguity
+  (OCR noise, formatting issues, or multiple close candidates).
+
+- 40–69:
+  Field is inferred from layout or context
+  but not directly labeled.
+
+- 1–39:
+  Very weak or highly ambiguous signal.
+  Avoid this range; prefer null instead.
+
+- 0:
+  Field not found → value must be null.
+
+Strict Rules:
+- If value is null, confidence MUST be 0.
+- If confidence > 0, value MUST NOT be null.
+- Do NOT output "unknown" or any placeholder strings.
+- Do NOT guess.
+- Do NOT include explanations outside JSON.
+
+Here is the birth certificate OCR text:
+\"\"\"{text}\"\"\"
+
+Return JSON only with the required keys and the required value/confidence structure.
+"""
+
+def extract_text_from_ocr(file_bytes: bytes) -> str:
+    """
+    Extracting the raw text from pdf through OCR
+    """
+    print("Starting OCR text extraction with prebuilt-read...")
+
+    poller = ocr_client.begin_analyze_document(
+        model_id="prebuilt-read",
+        body=BytesIO(file_bytes),
+        content_type="application/octet-stream",
+    )
+    result = poller.result()
+
+    text = "\n".join(
+        line.content
+        for page in result.pages
+        for line in (page.lines or [])
+        if line.content
+    )
+
+    print("OCR text extraction complete. Extracted text preview:")
+    print("----- OCR RAW TEXT START -----")
+    print(text[:3000])
+    print("----- OCR RAW TEXT END -----")
+
+    return text
+
+
+# def extract_llm_fields(text: str):
+#     """
+#     Calls Azure OpenAI and prints ONLY what the LLM returns (raw content).
+#     Does not parse JSON. Returns the raw string too.
+#     """
+#     prompt = EXTRACTION_PROMPT.format(text=text[:15000])
+
+#     response = openai_client.chat.completions.create(
+#         model=AZURE_OPENAI_DEPLOYMENT,
+#         messages=[
+#             {"role": "system", "content": "Return JSON only."},
+#             {"role": "user", "content": prompt},
+#         ],
+#         temperature=0,
+#         response_format={"type": "json_object"},
+#     )
+
+#     raw = (response.choices[0].message.content or "").strip()
+#     print(raw, flush=True)
+#     return raw
+
+
+# def process_birth_certificate(file_bytes: bytes, filename: str):
+#     """
+#     Runs OCR -> LLM.
+#     Prints ONLY the raw LLM output (nothing else).
+#     """
+#     text = extract_text_from_ocr(file_bytes)   # keep your existing OCR function as-is
+#     return extract_llm_fields(text)
+
+
+def extract_llm_fields(text: str) -> dict:
+    """
+    Uses your existing `openai_client` (AzureOpenAI) and EXTRACTION_PROMPT.
+    Returns the 5 fields, each as { "value": <str|null>, "confidence": <0-100> }.
+    No code normalization; confidence is produced by the LLM.
+    """
+    prompt = EXTRACTION_PROMPT.format(text=text[:15000])
+    print("Sending text to Azure OpenAI LLM for field extraction...")
+
+    def _blank():
+        return {"value": None, "confidence": 0}
+
+    try:
+        response = openai_client.chat.completions.create(
+            model=AZURE_OPENAI_DEPLOYMENT,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Return JSON only. For each field return {value, confidence}.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0,
+            response_format={"type": "json_object"},
+        )
+
+        raw = response.choices[0].message.content.strip()
+        print("RAW LLM RESPONSE:", raw,flush=True)
+
+        parsed = json.loads(raw)
+
+        # Enforce shape + defaults (do NOT alter values)
+        out = {
+            "name": parsed.get("name", _blank()),
+            "dob": parsed.get("dob", _blank()),
+            "gender": parsed.get("gender", _blank()),
+            "place_of_birth": parsed.get("place_of_birth", _blank()),
+            "citizenship_indication": parsed.get("citizenship_indication", _blank()),
+        }
+
+        # Defensive cleanup: ensure each field is a dict with value/confidence
+        for k in out:
+            v = out[k]
+            if not isinstance(v, dict):
+                out[k] = _blank()
+                continue
+            if "value" not in v:
+                v["value"] = None
+            if "confidence" not in v or not isinstance(v["confidence"], (int, float)):
+                v["confidence"] = 0
+            # clamp confidence to 0..100
+            if v["confidence"] < 0:
+                v["confidence"] = 0
+            if v["confidence"] > 100:
+                v["confidence"] = 100
+
+        return out
+
+    except Exception as e:
+        print("LLM extraction failed:", e)
+        return {
+            "name": _blank(),
+            "dob": _blank(),
+            "gender": _blank(),
+            "place_of_birth": _blank(),
+            "citizenship_indication": _blank(),
+        }
+
+def process_birth_certificate(file_bytes: bytes, filename: str) -> dict:
+    """
+    Orchestrates:
+    1) OCR using extract_text_from_ocr()
+    2) LLM extraction using extract_llm_fields()
+    3) Returns ONLY the 5 fields with value + confidence
+    """
+
+    print(f"Processing birth certificate: {filename}")
+
+    try:
+        # Step 1: OCR
+        text = extract_text_from_ocr(file_bytes)
+
+        # Step 2: LLM Extraction
+        llm_fields = extract_llm_fields(text)
+
+        # Final output: only LLM fields (value + confidence)
+        output = {
+            "name": llm_fields.get("name"),
+            "dob": llm_fields.get("dob"),
+            "gender": llm_fields.get("gender"),
+            "place_of_birth": llm_fields.get("place_of_birth"),
+            "citizenship_indication": llm_fields.get("citizenship_indication"),
+        }
+
+        print("Final Birth Certificate Extraction Output:")
+        print(json.dumps(output, indent=2))
+
+        return {
+            "status": "success",
+            "filename": filename,
+            "extracted_fields": output,
+        }
+
+    except Exception as e:
+        print("Birth certificate processing failed:", e)
+
+        return {
+            "status": "error",
+            "filename": filename,
+            "extracted_fields": {
+                "name": {"value": None, "confidence": 0},
+                "dob": {"value": None, "confidence": 0},
+                "gender": {"value": None, "confidence": 0},
+                "place_of_birth": {"value": None, "confidence": 0},
+                "citizenship_indication": {"value": None, "confidence": 0},
+            },
+            "message": str(e),
+        }
+    
+if __name__ == "__main__":
+    input_file = "Birth_certificate1.jpg"   # change this to test other files
+
+    with open(input_file, "rb") as f:
+        file_bytes = f.read()
+
+    result = process_birth_certificate(file_bytes, input_file)
+
+    print("\n===== FINAL JSON OUTPUT =====")
+    print(json.dumps(result, indent=2))
+
+
+
 quad = _find_largest_rectangle(img)
 
