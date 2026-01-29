@@ -1351,5 +1351,66 @@ if __name__ == "__main__":
 
 
 
+
+
 quad = _find_largest_rectangle(img)
+
+
+
+
+
+    ---------------------------------------------
+
+
+
+
+
+def _confidence_pct(field) -> float:
+    # DI confidence is typically 0..1
+    return round((getattr(field, "confidence", 0) or 0) * 100, 2)
+
+def _field_value(field):
+    """
+    Prefer .content (what you see in DI JSON).
+    Fallback to typed value fields if content is missing.
+    """
+    content = getattr(field, "content", None)
+    if content not in (None, ""):
+        return content
+
+    # Typed fallbacks (SDK varies by version)
+    for attr in (
+        "valueString", "valueDate", "valueNumber", "valueInteger",
+        "valuePhoneNumber", "valueTime", "valueCountryRegion", "valueCurrency"
+    ):
+        v = getattr(field, attr, None)
+        if v not in (None, ""):
+            return v
+
+    return None
+
+def _field_to_nested_json(field):
+    """
+    Recursively converts DI DocumentField (including objects/arrays)
+    into your desired {value, confidence} leaf format.
+    """
+    # OBJECT (like FinalFourPayCheckTable, Week1, etc.)
+    value_obj = getattr(field, "valueObject", None) or getattr(field, "value_object", None)
+    if value_obj:
+        out = {}
+        # value_obj is dict[str, DocumentField]
+        for k, child in value_obj.items():
+            out[str(k)] = _field_to_nested_json(child)
+        return out
+
+    # ARRAY (in case DI returns arrays for tables in some models)
+    value_arr = getattr(field, "valueArray", None) or getattr(field, "value_array", None)
+    if value_arr:
+        return [_field_to_nested_json(item) for item in value_arr]
+
+    # LEAF FIELD
+    return {
+        "value": _field_value(field),
+        "confidence": _confidence_pct(field)
+    }
 
