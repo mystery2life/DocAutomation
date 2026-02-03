@@ -2077,3 +2077,37 @@ else:
         "confidence": (obj or {}).get("confidence"),
     }
 
+
+
+---------------------
+
+
+
+def _field_value(field):
+    """
+    Prefer structured typed values from DocumentField.
+    Fallback to content only if typed values are missing.
+    """
+
+    # 1️⃣ Numbers first (most reliable for money/hours)
+    for attr in ("valueNumber", "valueInteger", "valueCurrency"):
+        v = getattr(field, attr, None)
+        if v not in (None, ""):
+            return v
+
+    # 2️⃣ Date
+    v = getattr(field, "valueDate", None)
+    if v not in (None, ""):
+        return v
+
+    # 3️⃣ String
+    v = getattr(field, "valueString", None)
+    if v not in (None, ""):
+        return v
+
+    # 4️⃣ Fallback to raw OCR text
+    content = getattr(field, "content", None)
+    if content not in (None, ""):
+        return content
+
+    return None
