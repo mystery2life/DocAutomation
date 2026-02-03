@@ -1991,3 +1991,72 @@ def normalize_ev(structured_di: Optional[Dict[str, Any]]) -> Dict[str, Dict[str,
     return out
 
 
+------------------------------------------------
+
+
+
+def norm_money(item: dict) -> dict:
+    v = clean_money((item or {}).get("value"))
+    return {"value": v, "confidence": (item or {}).get("confidence")}
+
+def norm_table_week(week_obj: dict) -> dict:
+    """
+    week_obj format:
+      {
+        "ActualDatePaid": {"value": "...", "confidence": ...},
+        "GrossWages": {"value": "...", "confidence": ...},
+        ...
+      }
+    returns same structure but normalized values.
+    """
+    if not isinstance(week_obj, dict):
+        return {}
+
+    # per-field normalizers inside each week
+    WEEK_FIELD_NORMALIZERS = {
+        "ActualDatePaid": norm_date,
+        "GrossWages": norm_money,
+        "EITC": norm_money,
+        "NumOfHours": norm_hours,     # uses to_float()
+        "Tips": norm_money,
+        "Bonus": norm_money,
+        "Commission": norm_money,
+    }
+
+    out = {}
+    for k, v in week_obj.items():
+        fn = WEEK_FIELD_NORMALIZERS.get(k)
+        if fn:
+            out[k] = fn(v if isinstance(v, dict) else {"value": v, "confidence": None})
+        else:
+            # default behavior: preserve structure
+            # if it's leaf -> pass through (or squash text), if nested -> keep as-is
+            if isinstance(v, dict) and ("value" in v or "confidence" in v):
+                out[k] = {"value": squash_spaces(v.get("value")), "confidence": v.get("confidence")}
+            elif isinstance(v, dict):
+                out[k] = v
+            else:
+                out[k] = {"value": squash_spaces(v), "confidence": None}
+
+    return out
+
+def norm_final_four_paycheck_table(table_obj: dict) -> dict:
+    """
+    table_obj format:
+      {
+        "Week1": {...},
+        "Week2": {...},
+        "Week3": {...},
+        "Week4": {...}
+      }
+    """
+    if not isinstance(table_obj, dict):
+        return {}
+
+    out = {}
+    for week_key, week_val in table_obj.items():
+        if isinstance(week_val, dict):
+            out[week_key] = norm_table_week(week_val)
+        else:
+            out[week_key] = {}
+    return out
