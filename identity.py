@@ -1414,3 +1414,166 @@ def _field_to_nested_json(field):
         "confidence": _confidence_pct(field)
     }
 
+
+
+
+     --------------------------------------------------
+
+
+from __future__ import annotations
+from typing import Any, Dict, Optional
+import re
+from datetime import datetime
+
+# You already have this from your photo
+# from nameparser import HumanName
+# def parse_name_py(full_name: str): ...
+
+def _empty_field() -> Dict[str, Any]:
+    return {"value": None, "confidence": None}
+
+def _as_field(obj: Any) -> Dict[str, Any]:
+    """
+    Ensures we always return the structure: {"value": ..., "confidence": ...}
+    Accepts:
+      - {"value": x, "confidence": y}
+      - raw strings (rare) -> wraps with confidence None
+      - None -> empty field
+    """
+    if obj is None:
+        return _empty_field()
+    if isinstance(obj, dict) and ("value" in obj or "confidence" in obj):
+        return {
+            "value": obj.get("value", None),
+            "confidence": obj.get("confidence", None),
+        }
+    if isinstance(obj, str):
+        return {"value": obj.strip() or None, "confidence": None}
+    return _empty_field()
+
+def _clean_text(s: Optional[str]) -> Optional[str]:
+    if s is None:
+        return None
+    s = str(s).strip()
+    s = re.sub(r"\s+", " ", s)
+    return s or None
+
+def _normalize_gender(v: Optional[str]) -> Optional[str]:
+    """
+    Normalize gender to one of: Male/Female/Other/Unknown (or None)
+    """
+    v = _clean_text(v)
+    if not v:
+        return None
+    x = v.lower()
+    if x in {"m", "male", "man", "boy"}:
+        return "Male"
+    if x in {"f", "female", "woman", "girl"}:
+        return "Female"
+    if x in {"other", "non-binary", "nonbinary", "nb"}:
+        return "Other"
+    if x in {"unknown", "unk", "n/a", "na"}:
+        return "Unknown"
+    # If it's some unexpected value, keep cleaned original
+    return v
+
+def _normalize_dob(v: Optional[str]) -> Optional[str]:
+    """
+    Normalize DOB to ISO: YYYY-MM-DD if parseable, else keep cleaned original.
+    (Safe approach: try a few common formats.)
+    """
+    v = _clean_text(v)
+    if not v:
+        return None
+
+    candidates = [
+        "%Y-%m-%d",
+        "%m/%d/%Y",
+        "%d/%m/%Y",
+        "%m-%d-%Y",
+        "%d-%m-%Y",
+        "%b %d %Y",     # Jan 02 2020
+        "%B %d %Y",     # January 02 2020
+        "%d %b %Y",     # 02 Jan 2020
+        "%d %B %Y",     # 02 January 2020
+    ]
+
+    # Remove commas like "Jan 2, 2020"
+    vv = v.replace(",", "")
+    for fmt in candidates:
+        try:
+            dt = datetime.strptime(vv, fmt).date()
+            return dt.isoformat()
+        except ValueError:
+            continue
+
+    return v  # fallback: keep as provided
+
+def normalize_birth_certificate_fields(llm_fields: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """
+    Input expected (LLM output):
+      {
+        "name": {"value": "...", "confidence": 92},
+        "dob": {"value": "...", "confidence": 85},
+        "gender": {"value": "...", "confidence": 78},
+        "place_of_birth": {"value": "...", "confidence": 80},
+        "citizenship_indication": {"value": "...", "confidence": 60}
+      }
+
+    Output (standardized):
+      OriginalFullName, DateOfBirth, Gender, PlaceOfBirth, CitizenshipIndication,
+      NamePrefix_C, NameFirstName_C, NameMiddleName_C, NameLastName_C, NameSuffix_C
+    """
+
+    # --- Read incoming fields safely ---
+    name_f = _as_field(llm_fields.get("name"))
+    dob_f = _as_field(llm_fields.get("dob"))
+    gender_f = _as_field(llm_fields.get("gender"))
+    pob_f = _as_field(llm_fields.get("place_of_birth"))
+    citizen_f = _as_field(llm_fields.get("citizenship_indication"))
+
+    # --- Normalize values (keep confidence as-is) ---
+    name_val = _clean_text(name_f["value"])
+    dob_val = _normalize_dob(dob_f["value"])
+    gender_val = _normalize_gender(gender_f["value"])
+    pob_val = _clean_text(pob_f["value"])
+    citizen_val = _clean_text(citizen_f["value"])
+
+    # Update normalized values back
+    name_f["value"] = name_val
+    dob_f["value"] = dob_val
+    gender_f["value"] = gender_val
+    pob_f["value"] = pob_val
+    citizen_f["value"] = citizen_val
+
+    # --- Derived name parts (same confidence score as 'name') ---
+    name_conf = name_f.get("confidence", None)
+    if name_val:
+        parts = parse_name_py(name_val)  # returns dict with prefix/first/middle/last/suffix
+        prefix = _clean_text(parts.get("prefix"))
+        first = _clean_text(parts.get("first_name"))
+        middle = _clean_text(parts.get("middle_name"))
+        last = _clean_text(parts.get("last_name"))
+        suffix = _clean_text(parts.get("suffix"))
+    else:
+        prefix = first = middle = last = suffix = None
+        name_conf = None  # no name => no confidence for derived fields
+
+    # --- Build standardized output ---
+    out: Dict[str, Dict[str, Any]] = {
+        "OriginalFullName": {"value": name_val, "confidence": name_f.get("confidence", None) if name_val else None},
+        "DateOfBirth": {"value": dob_val, "confidence": dob_f.get("confidence", None) if dob_val else None},
+        "Gender": {"value": gender_val, "confidence": gender_f.get("confidence", None) if gender_val else None},
+        "PlaceOfBirth": {"value": pob_val, "confidence": pob_f.get("confidence", None) if pob_val else None},
+        "CitizenshipIndication": {"value": citizen_val, "confidence": citizen_f.get("confidence", None) if citizen_val else None},
+
+        "NamePrefix_C": {"value": prefix, "confidence": name_conf},
+        "NameFirstName_C": {"value": first, "confidence": name_conf},
+        "NameMiddleName_C": {"value": middle, "confidence": name_conf},
+        "NameLastName_C": {"value": last, "confidence": name_conf},
+        "NameSuffix_C": {"value": suffix, "confidence": name_conf},
+    }
+
+    # Guarantee all keys exist even if llm_fields missing (already done).
+    return out
+
