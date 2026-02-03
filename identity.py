@@ -1577,3 +1577,417 @@ def normalize_birth_certificate_fields(llm_fields: Dict[str, Any]) -> Dict[str, 
     # Guarantee all keys exist even if llm_fields missing (already done).
     return out
 
+
+----------------------------------------
+
+
+
+
+# ev_normalization.py
+from __future__ import annotations
+
+import re
+from datetime import datetime
+from typing import Any, Dict, Optional
+
+
+# =========================
+# Helpers (self-contained)
+# =========================
+
+_ONLY_DIGITS = re.compile(r"\D+")
+# keep digits, dot, comma, minus only
+_MONEY_RX = re.compile(r"[^\d\.,-]+")
+
+
+def squash_spaces(s: Any) -> Optional[str]:
+    """Collapse whitespace/newlines; return None if empty."""
+    if s is None:
+        return None
+    txt = " ".join(str(s).split())
+    return txt or None
+
+
+def to_float(x: Any) -> Optional[float]:
+    """
+    Parse a number-like value to float.
+    Handles '40', '40.0', '40 hours', etc.
+    """
+    if x is None:
+        return None
+    if isinstance(x, (int, float)):
+        return float(x)
+
+    s = squash_spaces(x)
+    if not s:
+        return None
+
+    # Try direct float
+    try:
+        return float(s)
+    except Exception:
+        pass
+
+    # Extract first numeric token
+    m = re.search(r"-?\d+(?:\.\d+)?", s)
+    if not m:
+        return None
+    try:
+        return float(m.group(0))
+    except Exception:
+        return None
+
+
+def clean_money(s: Any) -> Optional[str]:
+    """
+    Normalize currency-ish strings:
+      "$3, 461. 54" -> "$3,461.54"
+      "6500" -> "$6500" (keeps as string; can float later if needed)
+    """
+    s = squash_spaces(s)
+    if not s:
+        return None
+
+    # remove non money chars except digits, dot, comma, minus
+    s = _MONEY_RX.sub("", s)
+
+    # remove spaces
+    s = s.replace(" ", "")
+
+    if not s:
+        return None
+
+    # prefix '$' if not present
+    if not s.startswith("$"):
+        s = "$" + s
+
+    return s
+
+
+def parse_date(s: Any) -> Optional[str]:
+    """
+    Convert common date formats to YYYY-MM-DD.
+    """
+    txt = squash_spaces(s)
+    if not txt:
+        return None
+    if len(txt) < 6:
+        return None
+
+    fmts = [
+        "%m/%d/%Y",
+        "%m-%d-%Y",
+        "%Y-%m-%d",
+        "%m/%d/%y",
+        "%m-%d-%y",
+        "%d-%b-%Y",  # 12-Jan-2017
+        "%d %b %Y",  # 12 Jan 2017
+        "%b %d %Y",  # Jan 12 2017
+        "%B %d %Y",  # January 12 2017
+    ]
+
+    for f in fmts:
+        try:
+            dt = datetime.strptime(txt, f)
+            return dt.strftime("%Y-%m-%d")
+        except Exception:
+            pass
+
+    # fallback: extract digits and attempt M/D/Y
+    nums = re.findall(r"\d{1,4}", txt)
+    if len(nums) >= 3:
+        try:
+            mm = int(nums[0])
+            dd = int(nums[1])
+            yy = int(nums[2])
+            if yy < 100:
+                yy = 2000 + yy
+            dt = datetime(year=yy, month=mm, day=dd)
+            return dt.strftime("%Y-%m-%d")
+        except Exception:
+            return None
+
+    return None
+
+
+def titlecase_job(s: Any) -> Optional[str]:
+    """Simple title casing preserving short ALLCAPS tokens like CEO."""
+    txt = squash_spaces(s)
+    if not txt:
+        return None
+    parts = txt.split()
+    out = []
+    for w in parts:
+        if w.isupper() and len(w) <= 4:
+            out.append(w)
+        else:
+            out.append(w.capitalize())
+    return " ".join(out)
+
+
+def digits_only(s: Any) -> Optional[str]:
+    """Return digits only; None if empty."""
+    if s is None:
+        return None
+    txt = squash_spaces(s)
+    if not txt:
+        return None
+    d = _ONLY_DIGITS.sub("", txt)
+    return d or None
+
+
+# =========================
+# Template builder
+# =========================
+
+def build_ev_template() -> Dict[str, Dict[str, Any]]:
+    """
+    Canonical output format:
+      { FieldName: { "value": ..., "confidence": ... }, ... }
+
+    Includes FinalFourPayCheckTable as a {value, confidence} container where value is nested dict.
+    """
+    def _empty():
+        return {"value": None, "confidence": None}
+
+    return {
+        "EmployeeName": _empty(),
+        "SSN": _empty(),
+        "HireDate": _empty(),
+        "JobTitle": _empty(),
+        "EIN": _empty(),
+        "FirstPayCheckDate": _empty(),
+        "PayFrequency": _empty(),
+        "AverageWorkingHours": _empty(),
+        "AvgPay": _empty(),
+        "AvgPayFrequency": _empty(),
+        "EmploymentType": _empty(),
+        "EmploymentEndDate": _empty(),
+        "EmploymentEndDateReason": _empty(),
+        "FinalPayCheckDate": _empty(),
+        "FinalPayCheckAmt": _empty(),
+        "CompanyName": _empty(),
+        "CompanyAddress": _empty(),
+
+        # Nested table (value will be dict like {"Week1": {...}, ...})
+        "FinalFourPayCheckTable": _empty(),
+    }
+
+
+# =========================
+# Leaf normalizers (top-level)
+# =========================
+
+def _norm_keep_conf(item: dict, new_value: Any) -> dict:
+    return {"value": new_value, "confidence": (item or {}).get("confidence")}
+
+
+def norm_text(item: dict) -> dict:
+    v = squash_spaces((item or {}).get("value"))
+    return _norm_keep_conf(item, v)
+
+
+def norm_job_title(item: dict) -> dict:
+    v = titlecase_job((item or {}).get("value"))
+    return _norm_keep_conf(item, v)
+
+
+def norm_date(item: dict) -> dict:
+    v = parse_date((item or {}).get("value"))
+    return _norm_keep_conf(item, v)
+
+
+def norm_money(item: dict) -> dict:
+    v = clean_money((item or {}).get("value"))
+    return _norm_keep_conf(item, v)
+
+
+def norm_hours(item: dict) -> dict:
+    v = to_float((item or {}).get("value"))
+    return _norm_keep_conf(item, v)
+
+
+def norm_ein(item: dict) -> dict:
+    d = digits_only((item or {}).get("value"))
+    # EIN should be 9 digits. If not, set None (keep confidence though).
+    if not d or len(d) != 9:
+        return _norm_keep_conf(item, None)
+    return _norm_keep_conf(item, d)
+
+
+def norm_ssn(item: dict) -> dict:
+    raw = squash_spaces((item or {}).get("value"))
+    # allow masked or digits; validate later if needed
+    return _norm_keep_conf(item, raw)
+
+
+FIELD_NORMALIZERS = {
+    "EmployeeName": norm_text,
+    "CompanyName": norm_text,
+    "CompanyAddress": norm_text,
+
+    "SSN": norm_ssn,
+    "EIN": norm_ein,
+
+    "HireDate": norm_date,
+    "EmploymentEndDate": norm_date,
+    "FirstPayCheckDate": norm_date,
+    "FinalPayCheckDate": norm_date,
+
+    "JobTitle": norm_job_title,
+
+    "AverageWorkingHours": norm_hours,
+
+    "AvgPay": norm_money,
+    "FinalPayCheckAmt": norm_money,
+
+    # These are often already clean strings; keep as text
+    "PayFrequency": norm_text,
+    "AvgPayFrequency": norm_text,
+    "EmploymentType": norm_text,
+    "EmploymentEndDateReason": norm_text,
+}
+
+
+# =========================
+# FinalFourPayCheckTable normalizer (nested)
+# =========================
+
+def _leaf(item: Any) -> dict:
+    """
+    Ensure leaf is {"value":..., "confidence":...}
+    """
+    if isinstance(item, dict) and "value" in item and "confidence" in item:
+        return item
+    if isinstance(item, dict) and "value" in item:
+        return {"value": item.get("value"), "confidence": item.get("confidence")}
+    return {"value": item, "confidence": None}
+
+
+def _norm_leaf(item: Any, fn) -> dict:
+    it = _leaf(item)
+    v = fn(it.get("value"))
+    return {"value": v, "confidence": it.get("confidence")}
+
+
+def normalize_final_four_paycheck_table(table_obj: Any) -> Any:
+    """
+    table_obj from your adaptor is usually:
+      {
+        "Week1": {"ActualDatePaid": {"value": "...", "confidence": ...}, ...},
+        "Week2": {...},
+        ...
+      }
+
+    Returns same shape, but with normalized leaf values.
+    Keeps confidence at each leaf.
+    """
+    if not isinstance(table_obj, dict):
+        return table_obj
+
+    # Keys inside each week (match your DI model keys exactly)
+    DATE_KEYS = {"ActualDatePaid"}
+    HOURS_KEYS = {"NumOfHours", "Num of Hours", "Num_Of_Hours"}  # include variations if any
+    MONEY_KEYS = {"GrossWages", "EITC", "Tips", "Bonus", "Commission"}
+
+    out: Dict[str, Any] = {}
+
+    for week_key, week_obj in table_obj.items():
+        if not isinstance(week_obj, dict):
+            out[week_key] = week_obj
+            continue
+
+        w_out: Dict[str, Any] = {}
+        for k, item in week_obj.items():
+            if k in DATE_KEYS:
+                w_out[k] = _norm_leaf(item, parse_date)
+            elif k in HOURS_KEYS:
+                w_out[k] = _norm_leaf(item, to_float)
+            elif k in MONEY_KEYS:
+                w_out[k] = _norm_leaf(item, clean_money)
+            else:
+                # default: just squash text (keeps confidence)
+                w_out[k] = _norm_leaf(item, squash_spaces)
+
+        out[week_key] = w_out
+
+    return out
+
+
+# =========================
+# DI key mapping (DI -> canonical)
+# =========================
+
+# If DI keys already match your canonical template keys, keep as-is.
+# If your DI model uses different field names, map them here.
+EV_KEY_MAP = {
+    "EmployeeName": "EmployeeName",
+    "SSN": "SSN",
+    "HireDate": "HireDate",
+    "JobTitle": "JobTitle",
+    "EIN": "EIN",
+    "FirstPayCheckDate": "FirstPayCheckDate",
+    "PayFrequency": "PayFrequency",
+    "AverageWorkingHours": "AverageWorkingHours",
+    "AvgPay": "AvgPay",
+    "AvgPayFrequency": "AvgPayFrequency",
+    "EmploymentType": "EmploymentType",
+    "EmploymentEndDate": "EmploymentEndDate",
+    "EmploymentEndDateReason": "EmploymentEndDateReason",
+    "FinalPayCheckDate": "FinalPayCheckDate",
+    "FinalPayCheckAmt": "FinalPayCheckAmt",
+    "CompanyName": "CompanyName",
+    "CompanyAddress": "CompanyAddress",
+    "FinalFourPayCheckTable": "FinalFourPayCheckTable",
+}
+
+
+# =========================
+# Main normalization entry
+# =========================
+
+def normalize_ev(structured_di: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """
+    structured_di expected (from your ev_adaptor) format:
+
+      {
+        "EmployeeName": {"value": "...", "confidence": ...},
+        ...
+        "FinalFourPayCheckTable": {
+            "Week1": {"ActualDatePaid": {"value": "...", "confidence": ...}, ...},
+            ...
+        }
+      }
+
+    Returns canonical template with normalized values.
+    """
+    out = build_ev_template()
+    structured_di = structured_di or {}
+
+    for di_key, obj in structured_di.items():
+        canonical = EV_KEY_MAP.get(di_key)
+        if not canonical or canonical not in out:
+            continue
+
+        # Special-case nested table because adaptor gives it as dict-of-weeks (not {value,confidence})
+        if canonical == "FinalFourPayCheckTable" and isinstance(obj, dict) and "value" not in obj:
+            out[canonical] = {
+                "value": normalize_final_four_paycheck_table(obj),
+                "confidence": None,  # no single confidence for whole object
+            }
+            continue
+
+        # Normal leaf field: expected {"value":..., "confidence":...}
+        if isinstance(obj, dict) and ("value" in obj or "confidence" in obj):
+            fn = FIELD_NORMALIZERS.get(canonical)
+            out[canonical] = fn(obj) if fn else {
+                "value": (obj or {}).get("value"),
+                "confidence": (obj or {}).get("confidence"),
+            }
+        else:
+            # Unexpected shape: keep as value, no confidence
+            out[canonical] = {"value": obj, "confidence": None}
+
+    return out
+
+
