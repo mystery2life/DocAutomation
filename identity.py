@@ -2060,3 +2060,20 @@ def norm_final_four_paycheck_table(table_obj: dict) -> dict:
         else:
             out[week_key] = {}
     return out
+
+
+
+
+
+=-0ugj
+
+fn = FIELD_NORMALIZERS.get(canonical)
+
+if fn:
+    out[canonical] = fn(obj)
+else:
+    out[canonical] = {
+        "value": (obj or {}).get("value"),
+        "confidence": (obj or {}).get("confidence"),
+    }
+
