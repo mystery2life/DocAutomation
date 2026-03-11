@@ -2111,3 +2111,95 @@ def _field_value(field):
         return content
 
     return None
+
+
+
+
+
+
+
+            import os
+import json
+import base64
+from mimetypes import guess_type
+from openai import AzureOpenAI
+
+AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY")
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")   # e.g. https://<resource>.openai.azure.com/
+AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT")  # your vision-capable deployment name
+AZURE_OPENAI_API_VERSION = "2024-02-15-preview"  # works with chat completions examples in Azure docs
+
+client = AzureOpenAI(
+    api_key=AZURE_OPENAI_KEY,
+    api_version=AZURE_OPENAI_API_VERSION,
+    azure_endpoint=AZURE_OPENAI_ENDPOINT,
+)
+
+def local_image_to_data_url(image_path: str) -> str:
+    mime_type, _ = guess_type(image_path)
+    if mime_type is None:
+        mime_type = "application/octet-stream"
+
+    with open(image_path, "rb") as f:
+        base64_data = base64.b64encode(f.read()).decode("utf-8")
+
+    return f"data:{mime_type};base64,{base64_data}"
+
+image_path = r"C:\Users\veboreddy\Desktop\DocAutomation\your_image.jpg"
+data_url = local_image_to_data_url(image_path)
+
+prompt = """
+Extract the table from this image and return ONLY valid JSON.
+
+Schema:
+{
+  "table_name": "wages_received",
+  "headers": ["Actual Date Paid", "Gross Wages", "EITC", "# of Hours", "Tips", "Bonus", "Commission"],
+  "rows": [
+    {
+      "Actual Date Paid": "",
+      "Gross Wages": "",
+      "EITC": "",
+      "# of Hours": "",
+      "Tips": "",
+      "Bonus": "",
+      "Commission": ""
+    }
+  ]
+}
+
+Rules:
+- Return JSON only. No markdown.
+- Preserve row order exactly as shown in the image.
+- If a cell is blank or only has a slash mark, return "".
+- Normalize currency values to plain strings without $.
+- Keep dates exactly as seen in the image.
+"""
+
+response = client.chat.completions.create(
+    model=AZURE_OPENAI_DEPLOYMENT,
+    messages=[
+        {"role": "system", "content": "You are a precise document table extraction assistant."},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": data_url,
+                        "detail": "high"
+                    }
+                }
+            ]
+        }
+    ],
+    max_tokens=2000
+)
+
+content = response.choices[0].message.content
+print(content)
+
+# Optional: parse it
+parsed = json.loads(content)
+print(json.dumps(parsed, indent=2))
