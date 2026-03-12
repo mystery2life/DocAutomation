@@ -2203,3 +2203,158 @@ print(content)
 # Optional: parse it
 parsed = json.loads(content)
 print(json.dumps(parsed, indent=2))
+
+
+
+
+
+
+
+import os
+import json
+from openai import AzureOpenAI
+from dotenv import load_dotenv
+
+load_dotenv()
+
+AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY")
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
+AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
+
+client = AzureOpenAI(
+    api_key=AZURE_OPENAI_KEY,
+    api_version=AZURE_OPENAI_API_VERSION,
+    azure_endpoint=AZURE_OPENAI_ENDPOINT,
+)
+
+def build_empv_prompt(ocr_text: str) -> str:
+    return f"""
+You are an expert document information extraction system.
+
+Task:
+Extract the required Employment Verification fields from the OCR text and return them in structured JSON.
+
+Instructions:
+1. Use only the OCR text provided.
+2. Do not guess or infer values that are not explicitly present.
+3. If a field is missing, unclear, blank, or not found, return:
+   {{
+     "value": null,
+     "confidence": null
+   }}
+4. Preserve the original meaning of values.
+5. Normalize dates to YYYY-MM-DD only if the OCR text clearly supports the date.
+6. Normalize numeric amounts as numbers without currency symbols or commas if clearly present.
+7. For text fields, return clean text without extra spaces.
+8. For repeated paycheck rows, map them into "Final Four Paychecks" in order: Week1, Week2, Week3, Week4.
+9. Do not move values between rows.
+10. Treat each paycheck row as one independent record. Never assign a value from one row to another row.
+11. Return ONLY valid JSON. No markdown. No explanation.
+
+Output schema:
+{{
+  "EmployeeName": {{"value": null, "confidence": null}},
+  "SSN": {{"value": null, "confidence": null}},
+  "HireDate": {{"value": null, "confidence": null}},
+  "JobTitle": {{"value": null, "confidence": null}},
+  "EIN": {{"value": null, "confidence": null}},
+  "FirstPayCheckDate": {{"value": null, "confidence": null}},
+  "EmployerName": {{"value": null, "confidence": null}},
+  "CompanyAddress": {{"value": null, "confidence": null}},
+  "AverageWeeklyHours": {{"value": null, "confidence": null}},
+  "PayRate": {{"value": null, "confidence": null}},
+  "EmploymentEndDate": {{"value": null, "confidence": null}},
+  "FinalPayDate": {{"value": null, "confidence": null}},
+  "FinalPayAmount": {{"value": null, "confidence": null}},
+  "FinalFourPaychecks": {{
+    "Week1": {{
+      "ActualDatePaid": {{"value": null, "confidence": null}},
+      "GrossWages": {{"value": null, "confidence": null}},
+      "EITC": {{"value": null, "confidence": null}},
+      "Hours": {{"value": null, "confidence": null}},
+      "Tips": {{"value": null, "confidence": null}},
+      "Bonus": {{"value": null, "confidence": null}},
+      "Commission": {{"value": null, "confidence": null}}
+    }},
+    "Week2": {{
+      "ActualDatePaid": {{"value": null, "confidence": null}},
+      "GrossWages": {{"value": null, "confidence": null}},
+      "EITC": {{"value": null, "confidence": null}},
+      "Hours": {{"value": null, "confidence": null}},
+      "Tips": {{"value": null, "confidence": null}},
+      "Bonus": {{"value": null, "confidence": null}},
+      "Commission": {{"value": null, "confidence": null}}
+    }},
+    "Week3": {{
+      "ActualDatePaid": {{"value": null, "confidence": null}},
+      "GrossWages": {{"value": null, "confidence": null}},
+      "EITC": {{"value": null, "confidence": null}},
+      "Hours": {{"value": null, "confidence": null}},
+      "Tips": {{"value": null, "confidence": null}},
+      "Bonus": {{"value": null, "confidence": null}},
+      "Commission": {{"value": null, "confidence": null}}
+    }},
+    "Week4": {{
+      "ActualDatePaid": {{"value": null, "confidence": null}},
+      "GrossWages": {{"value": null, "confidence": null}},
+      "EITC": {{"value": null, "confidence": null}},
+      "Hours": {{"value": null, "confidence": null}},
+      "Tips": {{"value": null, "confidence": null}},
+      "Bonus": {{"value": null, "confidence": null}},
+      "Commission": {{"value": null, "confidence": null}}
+    }}
+  }}
+}}
+
+Confidence rules:
+- confidence must be a number from 0 to 100
+- assign high confidence only when the OCR text clearly matches the field
+- assign lower confidence if the OCR text is ambiguous or noisy
+- if value is null, confidence must also be null
+
+OCR text:
+{ocr_text}
+""".strip()
+
+
+def extract_empv_fields_from_ocr(ocr_text: str) -> dict:
+    prompt = build_empv_prompt(ocr_text)
+
+    response = client.chat.completions.create(
+        model=AZURE_OPENAI_DEPLOYMENT,
+        temperature=0,
+        messages=[
+            {
+                "role": "system",
+                "content": "You extract Employment Verification fields from OCR text into strict JSON."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    )
+
+    content = response.choices[0].message.content.strip()
+
+    # Remove accidental markdown fences if model adds them
+    if content.startswith("```"):
+        content = content.strip("`")
+        if content.startswith("json"):
+            content = content[4:].strip()
+
+    return json.loads(content)
+
+
+if __name__ == "__main__":
+    # Option 1: OCR text from a file
+    with open("ocr_text.txt", "r", encoding="utf-8") as f:
+        ocr_text = f.read()
+
+    # Option 2: if you already have OCR text in a variable, use that instead
+    # ocr_text = "your OCR text here"
+
+    result = extract_empv_fields_from_ocr(ocr_text)
+
+    print(json.dumps(result, indent=2))
