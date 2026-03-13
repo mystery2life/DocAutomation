@@ -2358,3 +2358,43 @@ if __name__ == "__main__":
     result = extract_empv_fields_from_ocr(ocr_text)
 
     print(json.dumps(result, indent=2))
+
+
+
+
+
+1. Roles and responsibilities
+1. Machine Learning & Generative AI Model Development
+Design, train, configure, and optimize machine learning and generative AI models within enterprise AI platforms, including transformer-based language models and computer vision architectures, to perform automated document classification, structured data extraction, and intelligent processing across large-scale structured and unstructured datasets.
+
+2. Custom Model Training using Enterprise AI Platforms
+Lead the design and execution of controlled experiments across multiple model configurations. Interpret quantitative findings and exercise independent technical judgment to determine optimal model selection and recommend implementation strategies.
+
+3. Experimental Design & Statistical Model Evaluation
+Design and conduct controlled experiments across multiple model architectures and configurations. Apply statistical performance metrics such as precision, recall, F1-score, ROC-AUC, confidence threshold analysis, and error distribution analysis to determine optimal model selection, interpret quantitative results, and recommend model improvements based on empirical findings.
+
+4. Retrieval-Augmented Generation (RAG) System 
+Design and optimize Retrieval-Augmented Generation pipelines utilizing embedding-based vector similarity search to enhance contextual retrieval, grounding accuracy, and response relevance within document intelligence workflows.
+
+5. Computer Vision & OCR Model Benchmarking
+Research, benchmark, and implement advanced computer vision and OCR techniques to improve document image preprocessing and extraction accuracy for hand written text date. Perform comparative performance analysis across model configurations and document variations.
+6. Model Monitoring, Drift Analysis & Retraining
+Oversee model performance monitoring and drift analysis, assess long-term performance trends, and determine retraining strategies to maintain model reliability and automation effectiveness.
+7. Data Preparation & Feature Engineering
+Perform advanced data preprocessing and normalization of structured and unstructured document data, including Natural Language Processing (NLP) techniques such as tokenization, text cleaning, embedding generation, and contextual text transformation. Conduct feature extraction and transformation of model outputs into structured formats suitable for downstream analytical systems and secure database integration.
+
+8. Algorithmic Optimization & Error Analysis
+Analyze model outputs and error patterns using quantitative and statistical techniques to refine algorithmic configurations, improve extraction accuracy, and enhance system performance.
+
+9. AI Solution Integration & Secure Inference Enablement
+Support integration of trained AI models into enterprise systems by developing secure REST-based inference endpoints and serverless processing functions. Assist in implementing authentication mechanisms and event-driven orchestration (e.g., message queue-triggered workflows) to enable reliable and scalable AI processing pipelines.
+
+10. Cloud-Based AI Model Lifecycle Management
+Leverage enterprise AI platforms such as Azure AI services and AWS AI/ML services to manage model training, validation, deployment, and lifecycle monitoring within secure and scalable cloud environments.
+
+
+
+
+11. Cross-Functional Technical Collaboration
+Provide technical guidance to cross-functional teams on AI model feasibility, performance trade-offs, and optimization strategies. Recommend data-driven improvements to enhance document automation efficiency.
+
