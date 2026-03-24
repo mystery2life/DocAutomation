@@ -2398,3 +2398,340 @@ Leverage enterprise AI platforms such as Azure AI services and AWS AI/ML service
 11. Cross-Functional Technical Collaboration
 Provide technical guidance to cross-functional teams on AI model feasibility, performance trade-offs, and optimization strategies. Recommend data-driven improvements to enhance document automation efficiency.
 
+
+
+def _retry(fn, *, op_name: str, retries: int = AZURE_RETRY_COUNT, delay_sec: int = AZURE_RETRY_DELAY_SEC):
+    """
+    Retry helper for transient Azure operations.
+    Retries with exponential backoff.
+    """
+    last_ex = None
+    wait = delay_sec
+
+    for attempt in range(1, retries + 1):
+        try:
+            return fn()
+        except Exception as ex:
+            last_ex = ex
+            log.warning("%s failed on attempt %s/%s: %s", op_name, attempt, retries, ex)
+            if attempt == retries:
+                break
+            time.sleep(wait)
+            wait *= 2
+
+    raise last_ex
+                                                                                                          
+def _sha256_bytes(data: bytes) -> str:
+    """
+    Compute SHA-256 hash for document content.
+    """
+    return hashlib.sha256(data).hexdigest()
+
+def _resolve_blob_path(uuid: str) -> str:
+    """
+    Use deterministic blob path so retries do not create duplicate files.
+    """
+    return f"{INGEST_PREFIX}/{uuid}.pdf"
+
+def _get_blob_client(uuid: str):
+    """
+    Returns blob client and blob path for the given UUID.
+    """
+    blob_path = _resolve_blob_path(uuid)
+    return ingest_container.get_blob_client(blob_path), blob_path
+
+def _blob_exists(blob_client) -> bool:
+    """
+    Check whether blob already exists.
+    """
+    return blob_client.exists()
+
+def _get_blob_metadata(blob_client) -> dict:
+    """
+    Fetch metadata for existing blob.
+    """
+    props = blob_client.get_blob_properties()
+    return props.metadata or {}
+
+def _set_blob_metadata(blob_client, metadata: dict) -> None:
+    """
+    Replace blob metadata with cleaned string values.
+    """
+    clean_meta = {str(k): str(v) for k, v in metadata.items() if v is not None}
+    blob_client.set_blob_metadata(clean_meta)
+
+def _upload_blob_if_needed(uuid: str, no_of_pages: int | None, pdf_bytes: bytes, sha256: str) -> tuple[str, str, dict]:
+    """
+    Upload the PDF only if it does not already exist.
+    Returns blob_path, sha256, metadata.
+    """
+    blob_client, blob_path = _get_blob_client(uuid)
+
+    if _blob_exists(blob_client):
+        metadata = _get_blob_metadata(blob_client)
+        log.info("UUID=%s blob already exists at %s", uuid, blob_path)
+        return blob_path, sha256, metadata
+
+    metadata = {
+        "uuid": uuid,
+        "no_of_pages": str(no_of_pages or ""),
+        "sha256": sha256,
+        "ingest_status": "BLOB_STORED",
+        "queue_status": "PENDING",
+        "uploaded_at": dt.datetime.utcnow().isoformat() + "Z",
+        "last_error": "",
+        "last_updated_at": dt.datetime.utcnow().isoformat() + "Z",
+    }
+
+    def _do_upload():
+        blob_client.upload_blob(
+            data=pdf_bytes,
+            overwrite=False,
+            metadata=metadata,
+            content_settings=ContentSettings(content_type="application/pdf"),
+        )
+
+    _retry(_do_upload, op_name="blob_upload")
+
+    log.info("UUID=%s blob uploaded at %s", uuid, blob_path)
+    return blob_path, sha256, metadata
+
+def _update_queue_status(uuid: str, queue_status: str, last_error: str = "") -> None:
+    """
+    Update queue processing status in blob metadata.
+    """
+    blob_client, _ = _get_blob_client(uuid)
+    metadata = _get_blob_metadata(blob_client)
+
+    metadata["queue_status"] = queue_status
+    metadata["last_error"] = last_error[:200] if last_error else ""
+    metadata["last_updated_at"] = dt.datetime.utcnow().isoformat() + "Z"
+
+    _retry(lambda: _set_blob_metadata(blob_client, metadata), op_name="blob_metadata_update")
+
+def _enqueue_sb(uuid: str, no_of_pages: int | None, blob_path: str, sha256: str) -> None:
+    """
+    Send work message to Service Bus for downstream classifier.
+    Uses message_id=uuid so duplicate detection can prevent duplicate messages.
+    """
+    payload = {
+        "UUID": uuid,
+        "page_number": no_of_pages,
+        "blob_path": blob_path,
+        "sha256": sha256,
+        "status": "INGESTED",
+        "submitted_at": dt.datetime.utcnow().isoformat() + "Z",
+    }
+
+    body = json.dumps(payload)
+
+    def _do_send():
+        with sb_client:
+            sender = sb_client.get_queue_sender(queue_name=SB_QUEUE_CLASSIFY)
+            with sender:
+                sender.send_messages(
+                    ServiceBusMessage(
+                        body,
+                        content_type="application/json",
+                        subject="classify",
+                        correlation_id=uuid,
+                        message_id=uuid,
+                    )
+                )
+
+    _retry(_do_send, op_name="service_bus_send")
+
+@app.route(route="ingest", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def ingest(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Ingest API:
+    1. validate request
+    2. decode base64
+    3. compute hash
+    4. upload blob if needed
+    5. enqueue service bus if not already published
+    6. return structured response
+    """
+
+    # --------------------------------
+    # Step 1: API key validation
+    # --------------------------------
+    if API_KEY:
+        x_api_key = req.headers.get("x-api-key")
+        if not x_api_key or x_api_key != API_KEY:
+            return func.HttpResponse(
+                json.dumps({
+                    "status": "FAILED",
+                    "message": "Unauthorized"
+                }),
+                mimetype="application/json",
+                status_code=401,
+            )
+
+    # --------------------------------
+    # Step 2: Parse request
+    # --------------------------------
+    try:
+        body = req.get_json()
+        uuid = (body.get("UUID") or "").strip()
+        no_of_pages = body.get("no_of_pages")
+        content_b64 = body.get("content_b64")
+
+        if not uuid or not content_b64:
+            return func.HttpResponse(
+                json.dumps({
+                    "status": "FAILED",
+                    "message": "Missing UUID/content_b64"
+                }),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        if len(uuid) > 64:
+            return func.HttpResponse(
+                json.dumps({
+                    "status": "FAILED",
+                    "UUID": uuid,
+                    "message": "UUID too long"
+                }),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+    except Exception:
+        return func.HttpResponse(
+            json.dumps({
+                "status": "FAILED",
+                "message": "Bad Request"
+            }),
+            mimetype="application/json",
+            status_code=400,
+        )
+
+    log.info("UUID=%s request received", uuid)
+
+    # --------------------------------
+    # Step 3: Decode and validate file
+    # --------------------------------
+    try:
+        pdf_bytes = _bytes_from_b64(content_b64)
+    except ValueError as e:
+        err = str(e)
+
+        if err == "TOO_LARGE":
+            return func.HttpResponse(
+                json.dumps({
+                    "status": "FAILED",
+                    "UUID": uuid,
+                    "message": f"file too large. Max {MAX_UPLOAD_MB} MB"
+                }),
+                mimetype="application/json",
+                status_code=413,
+            )
+
+        return func.HttpResponse(
+            json.dumps({
+                "status": "FAILED",
+                "UUID": uuid,
+                "message": f"Invalid document payload: {err}"
+            }),
+            mimetype="application/json",
+            status_code=400,
+        )
+
+    # --------------------------------
+    # Step 4: Compute file hash
+    # --------------------------------
+    sha256 = _sha256_bytes(pdf_bytes)
+    blob_client, blob_path = _get_blob_client(uuid)
+
+    # --------------------------------
+    # Step 5: Check if already fully processed
+    # --------------------------------
+    if _blob_exists(blob_client):
+        metadata = _get_blob_metadata(blob_client)
+
+        # Optional hash mismatch check
+        existing_sha = metadata.get("sha256")
+        if existing_sha and existing_sha != sha256:
+            return func.HttpResponse(
+                json.dumps({
+                    "status": "FAILED",
+                    "UUID": uuid,
+                    "blob_path": blob_path,
+                    "message": "UUID already exists with different file content"
+                }),
+                mimetype="application/json",
+                status_code=409,
+            )
+
+        if metadata.get("queue_status") == "PUBLISHED":
+            log.info("UUID=%s already ingested. blob_path=%s", uuid, blob_path)
+            return func.HttpResponse(
+                json.dumps({
+                    "status": "INGESTED",
+                    "UUID": uuid,
+                    "blob_path": blob_path,
+                    "message": "Already processed"
+                }),
+                mimetype="application/json",
+                status_code=202,
+            )
+
+    # --------------------------------
+    # Step 6: Upload blob if needed
+    # --------------------------------
+    try:
+        blob_path, sha256, metadata = _upload_blob_if_needed(uuid, no_of_pages, pdf_bytes, sha256)
+    except Exception as ex:
+        log.exception("Blob upload failed for UUID=%s", uuid)
+        return func.HttpResponse(
+            json.dumps({
+                "status": "FAILED_BLOB",
+                "UUID": uuid,
+                "message": "Failed to store blob",
+                "error": str(ex)
+            }),
+            mimetype="application/json",
+            status_code=503,
+        )
+
+    # --------------------------------
+    # Step 7: Publish queue message
+    # --------------------------------
+    try:
+        _enqueue_sb(uuid, no_of_pages, blob_path, sha256)
+        _update_queue_status(uuid, "PUBLISHED")
+
+        log.info("UUID=%s queued successfully. blob_path=%s", uuid, blob_path)
+
+        return func.HttpResponse(
+            json.dumps({
+                "status": "INGESTED",
+                "UUID": uuid,
+                "blob_path": blob_path
+            }),
+            mimetype="application/json",
+            status_code=202,
+        )
+
+    except Exception as ex:
+        log.exception("Service Bus enqueue failed for UUID=%s", uuid)
+
+        try:
+            _update_queue_status(uuid, "FAILED", str(ex))
+        except Exception:
+            log.exception("Failed to update blob metadata after queue failure for UUID=%s", uuid)
+
+        return func.HttpResponse(
+            json.dumps({
+                "status": "FAILED_QUEUE",
+                "UUID": uuid,
+                "blob_path": blob_path,
+                "message": "Failed to enqueue message",
+                "error": str(ex)
+            }),
+            mimetype="application/json",
+            status_code=503,
+        )
+                                                                                                          
