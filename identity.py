@@ -2735,3 +2735,181 @@ def ingest(req: func.HttpRequest) -> func.HttpResponse:
             status_code=503,
         )
                                                                                                           
+5.2.7 Initial Orchestration Event Emission
+
+After the document is durably persisted in Blob Storage, the ingestion service emits an event to Azure Service Bus to trigger downstream asynchronous processing.
+
+This marks the transition from the synchronous ingestion layer to the asynchronous document processing pipeline.
+
+The event is published only after:
+
+request validation is successful
+Blob persistence is successful
+required Blob metadata is recorded
+
+This ensures downstream processing is never started without first having a durable copy of the original document.
+
+5.2.7.1 Queue Publication
+
+The ingestion service publishes a message to the classification queue in Azure Service Bus.
+
+The purpose of this message is to notify the classifier service that a new document is available for processing.
+
+The queue message does not contain the full document payload.
+Instead, it contains the document reference and required metadata so downstream services can retrieve the source document from Blob Storage.
+
+This keeps the event payload lightweight and avoids passing large binary content through the queue.
+
+5.2.7.2 Event Payload Structure
+
+The queue message includes the minimum information required to start downstream processing.
+
+Logical fields included:
+
+UUID
+Blob path
+Page count (if available)
+File hash (SHA-256)
+Status
+Submission timestamp
+
+This event acts as the single trigger for the next stage of the workflow.
+
+Sample Queue Event
+{
+  "UUID": "fc8da6fd-1cab-4691-b657-5e8cbba5fcf2",
+  "page_number": 1,
+  "blob_path": "ingest/fc8da6fd-1cab-4691-b657-5e8cbba5fcf2.pdf",
+  "sha256": "<sha256-hash>",
+  "status": "INGESTED",
+  "submitted_at": "2026-03-24T14:25:10Z"
+}
+
+👉 Put this sample in a code block, same way you showed sample payload earlier.
+
+5.2.7.3 Service Bus Message Properties
+
+In addition to the message body, the ingestion service sets Service Bus message properties to support traceability and duplicate protection.
+
+Message properties used:
+
+subject = "classify"
+correlation_id = UUID
+message_id = UUID
+
+The UUID is reused as both the correlation ID and message ID.
+
+This ensures:
+
+end-to-end traceability across services
+duplicate detection support in Azure Service Bus
+consistent correlation between Blob, logs, and queue event
+Message Property Mapping
+Property	Value	Purpose
+subject	classify	Identifies downstream action
+correlation_id	UUID	Enables request tracing
+message_id	UUID	Supports duplicate detection
+
+👉 This is a good place for a small table.
+
+5.2.7.4 Duplicate Protection at Queue Level
+
+The queue is configured to use duplicate detection based on the message ID.
+
+Since the ingestion service sets message_id = UUID, repeated publication attempts for the same UUID within the duplicate detection window are treated as duplicates by Azure Service Bus.
+
+This protects downstream services from processing the same ingestion event multiple times.
+
+This is especially important during retry scenarios where:
+
+the original request is retried by the caller
+queue publication is retried after a transient failure
+the same UUID is submitted again after partial success
+5.2.7.5 Publication Retry Behavior
+
+Queue publication is protected by internal retry logic in the ingestion service.
+
+Retry is applied only for transient failures such as:
+
+temporary network interruption
+timeout while sending message
+temporary Azure Service Bus unavailability
+
+If queue publication succeeds:
+
+Blob metadata is updated with queue_status = PUBLISHED
+
+If queue publication fails after retry attempts:
+
+Blob metadata is updated with queue_status = FAILED
+the API returns a failure response to the caller
+
+This allows the same UUID to be retried safely without re-uploading the original file.
+
+5.2.7.6 Partial Success Handling
+
+A partial success scenario may occur when:
+
+Blob upload succeeds
+queue publication fails
+
+In this case:
+
+the original document remains safely stored in Blob Storage
+the Blob metadata preserves the last known processing state
+a subsequent retry uses the same stored document
+only the queue publication step is retried
+
+This prevents duplicate Blob uploads and allows the ingestion flow to resume from the last completed step.
+
+5.2.7.7 Emission Guarantee
+
+The ingestion layer guarantees that no orchestration event is emitted before durable Blob persistence is complete.
+
+It also ensures that repeated requests with the same UUID do not create duplicate downstream events when the event has already been successfully published.
+
+This design provides:
+
+reliable transition into asynchronous processing
+safe retry behavior
+idempotent event emission
+5.2.7.8 Event Emission Summary
+
+The event emission flow is as follows:
+
+request is validated
+document is stored in Blob Storage
+Blob metadata is recorded
+Service Bus event is published
+queue status is updated in Blob metadata
+synchronous acknowledgment is returned to the caller
+
+This completes the ingestion responsibility and hands control to the downstream classification layer.
+
+Where to place tables / examples
+
+Use these in 5.2.7:
+
+Put a code block under:
+
+5.2.7.2 Event Payload Structure
+
+sample queue event JSON
+Put a table under:
+
+5.2.7.3 Service Bus Message Properties
+
+subject, correlation_id, message_id
+Optional small table under:
+
+5.2.7.5 Publication Retry Behavior
+if you want one more table:
+
+Scenario	Behavior
+Queue publish succeeds	Update Blob metadata to PUBLISHED
+Queue publish fails after retry	Update Blob metadata to FAILED and return error
+Same UUID retried later	Reuse Blob and retry queue publication only
+
+That table is optional. If the page is already dense, skip it.
+
+If you want, I’ll draft 5.2.8 Synchronous Response Behavior next in the same style.
