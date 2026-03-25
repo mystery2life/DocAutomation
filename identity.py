@@ -9971,3 +9971,55 @@ Split 2 → stored in SQL staging table
 Split 3 → sent to paystub queue
 
 👉 This is a hybrid fan-out, not pure queue fan-out.
+
+
+5.4.5 Identity Extraction Output Structure (Detailed Explanation)
+
+The Identity extraction module produces a structured JSON output consisting of two distinct layers:
+
+Extracted Fields (Raw Model Output)
+UI Display Fields (Normalized for Heights)
+Extracted Fields
+
+The extracted_fields section contains the raw output returned by Azure Document Intelligence (and associated OCR/LLM processing).
+
+Fields are captured in their original extracted form without transformation
+Values reflect the closest representation of the source document
+Each field includes:
+value: Extracted text/value from the document
+confidence: Model-generated confidence score
+
+This layer is preserved to support:
+
+traceability and auditing
+confidence-based validation
+reprocessing or model evaluation
+UI Display Fields (Heights-Normalized Layer)
+
+The ui_display_fields section contains a normalized and schema-aligned representation of the extracted data, specifically tailored for the Heights system.
+
+This layer is derived from extracted_fields through a transformation process that includes:
+
+Field mapping to Heights-defined schema
+Value normalization (e.g., date formatting, casing standardization)
+Structural transformations (e.g., splitting full name into components)
+Explicit handling of missing or null values
+
+Each UI field includes:
+
+value: Normalized value ready for UI display
+confidence: Derived or propagated confidence score
+edited_sw: Indicator for human edits (Y / N)
+field_type: Data type used for UI rendering (e.g., STRING, DATE, GENDER)
+Design Considerations
+The separation between extracted_fields and ui_display_fields ensures:
+preservation of raw model output
+consistent downstream integration with Heights
+support for human-in-the-loop (HITL) workflows
+The output schema is intentionally stable and consistent to support:
+aggregation across documents
+storage in intermediate SQL tables
+downstream validation and submission workflows
+Summary
+
+The extraction output maintains a dual-layer structure where raw model outputs are preserved for accuracy and auditability, while a normalized representation is generated to meet Heights system requirements and UI interaction needs.
