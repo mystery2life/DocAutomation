@@ -9888,3 +9888,86 @@ conflict failures → client must correct UUID/content mismatch
 dependency failures → request may be retried using the same UUID
 
 This approach ensures predictable behavior and safe retry handling.
+
+5.3.8 Fan-Out Event Emission (Refined)
+
+After classification and document decomposition, the system emits downstream processing events based on document type.
+
+Each split document is evaluated independently and routed to the appropriate processing path.
+
+5.3.8.1 Routing Logic Overview
+
+The fan-out stage applies a type-based routing strategy:
+
+Extractable document types
+→ Routed to dedicated Service Bus queues for downstream extraction
+Unknown / non-extractable document types
+→ Stored in a temporary SQL table for later aggregation and concatenation
+
+This ensures that only supported document types enter extraction pipelines, while unsupported types are preserved for fallback processing.
+
+5.3.8.2 Routing Behavior
+Path 1: Extractable Documents (Queue-Based Fan-Out)
+
+For documents with recognized types (e.g., paystub, employment, etc.):
+
+One message is published per split document
+Each message is sent to a type-specific Service Bus queue
+Downstream processors consume messages independently
+
+Example:
+
+doc_type = EMPV → employment queue
+doc_type = PAYSTUB → paystub queue
+
+👉 This enables:
+
+parallel processing
+domain-specific extraction logic
+independent scaling per document type
+Path 2: Unknown Documents (SQL Staging Path)
+
+For documents classified as:
+
+doc_type = unknown
+No Service Bus message is published
+Instead, payload is inserted into a temporary SQL table
+
+Stored data includes:
+
+UUID / parent UUID
+split_doc_id
+blob_path
+page ranges
+classification metadata
+
+👉 Purpose:
+
+accumulate all unknown fragments
+enable later concatenation / reconstruction
+support fallback or manual processing
+5.3.8.3 Fan-Out Characteristics
+One logical decision per split document
+No shared in-memory state between splits
+Parallel processing for extractable documents
+Controlled handling of unsupported documents via SQL staging
+At-least-once delivery for queue-based events
+5.3.8.4 Message Emission Rules
+Condition	Action
+Known / extractable doc type	Publish message to corresponding Service Bus queue
+Unknown doc type	Insert record into SQL staging table
+Mixed document (multiple splits)	Apply routing independently per split
+5.3.8.5 Example Flow
+
+Given a document split into:
+
+Split	Type
+Split 1	EMPV
+Split 2	UNKNOWN
+Split 3	PAYSTUB
+Result:
+Split 1 → sent to employment queue
+Split 2 → stored in SQL staging table
+Split 3 → sent to paystub queue
+
+👉 This is a hybrid fan-out, not pure queue fan-out.
