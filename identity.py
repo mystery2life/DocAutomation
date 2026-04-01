@@ -10198,3 +10198,118 @@ Queue capacity and scaling
 5.X.7 Summary
 
 Onboarding a new document type requires updates across classification, routing, extraction, and normalization layers. The system is designed to be modular, allowing new document types to be integrated with minimal impact on existing workflows while maintaining schema consistency and processing reliability.
+
+
+dwqfdasSDASDFDAS------------------------------------------------------------------------------------------------------
+
+Here are the two CCD-ready sections, aligned to your style and flow 👇
+
+5.4.4.1 Prebuilt Processor (Passport, Driver License, SSN)
+
+The Identity module leverages Azure Document Intelligence prebuilt models to process standard identity documents such as Passport, Driver License (DL), and Social Security Number (SSN) documents.
+
+Processing Approach
+Uses Azure Document Intelligence prebuilt-idDocument model
+No custom training required
+Designed for standardized, well-structured identity documents
+Provides high-confidence extraction for common identity fields
+Supported Document Types
+Document Type	Model Used
+Passport	Prebuilt ID Model
+Driver License (DL)	Prebuilt ID Model
+SSN	Prebuilt ID Model
+Extraction Flow
+Input document is passed to the prebuilt model
+Model extracts key identity fields such as:
+Name
+Date of Birth
+Document Number
+Expiration Date
+Issuing Authority
+Output is returned in structured format and mapped to:
+extracted_fields (raw model output)
+ui_display_fields (normalized for Heights)
+Output Characteristics
+High confidence scores for standardized layouts
+Minimal preprocessing required
+Consistent field structure across documents
+Direct compatibility with normalization layer
+Advantages
+Fast onboarding (no training required)
+High accuracy for supported formats
+Reduced development effort
+Stable schema output
+Limitations
+Limited flexibility for non-standard layouts
+May not capture custom or region-specific fields
+Dependent on document quality and format consistency
+Summary
+
+Prebuilt processors are used for standard identity documents to enable rapid, reliable extraction with minimal configuration, ensuring consistent outputs aligned with the Heights schema.
+
+5.4.4.2 Custom Processing for Birth Certificate
+
+Birth Certificates are processed using a custom extraction approach, as they are highly variable in format and not fully supported by prebuilt models.
+
+Processing Approach
+Uses a combination of:
+OCR (Document Intelligence / Read model)
+LLM-based extraction (if required)
+Custom parsing logic is implemented to extract required fields
+Challenges with Birth Certificates
+No standardized global format
+Variability across:
+countries
+states
+issuing authorities
+Mixed layouts (tabular, paragraph, handwritten)
+Extraction Flow
+Document is processed using OCR to extract raw text
+Extracted text is passed to:
+rule-based parsing OR
+LLM-based extraction
+Key fields are identified and structured into:
+extracted_fields
+ui_display_fields
+Typical Extracted Fields
+Full Name
+Date of Birth
+Place of Birth
+Gender
+Parent Names (if available)
+Registration Number (if present)
+Normalization
+
+Due to variability, normalization includes:
+
+Standardizing date formats
+Mapping fields to Heights schema
+Handling missing or optional fields
+Assigning confidence scores (derived if needed)
+Output Characteristics
+Flexible extraction logic
+Handles diverse layouts
+May include lower confidence for ambiguous fields
+Supports fallback and reprocessing
+Effort Consideration
+Component	Effort
+OCR setup	Low
+Extraction logic (rules/LLM)	Medium
+Normalization	Medium
+Testing (multiple formats)	High
+Advantages
+Supports non-standard documents
+Flexible and extensible
+Can adapt to new formats without retraining DI models
+Limitations
+Higher implementation effort
+Requires extensive testing
+May have variable confidence levels
+Summary
+
+Birth Certificates are processed using a custom extraction pipeline to handle variability in format and structure, ensuring that required identity fields are captured and normalized for downstream processing.
+
+If you want, I can next:
+
+connect this with fan-out + identity queue routing (very important linkage)
+or refine confidence + HITL logic specifically for identity docs 👍
