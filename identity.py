@@ -10023,3 +10023,178 @@ downstream validation and submission workflows
 Summary
 
 The extraction output maintains a dual-layer structure where raw model outputs are preserved for accuracy and auditability, while a normalized representation is generated to meet Heights system requirements and UI interaction needs.
+
+    5.X Adding a New Document Type to the Processing Pipeline
+
+This section describes the end-to-end process, system touchpoints, effort estimation, and required resources for onboarding a new document type into the document processing pipeline.
+
+5.X.1 Overview
+
+Onboarding a new document type requires coordinated updates across multiple layers of the system, including:
+
+Classification (document identification)
+Fan-out routing (queue or SQL path)
+Extraction (Document Intelligence / OCR / LLM)
+Normalization (mapping to Heights schema)
+Validation and persistence
+
+The process ensures that the new document type is fully integrated into the pipeline and produces outputs consistent with existing system standards.
+
+5.X.2 End-to-End Flow Impact
+
+The following system components are impacted when adding a new document type:
+
+Layer	Component	Change Required
+Ingestion	API + Blob	No change
+Classification	DI classifier	Add new label
+Routing	Fan-out logic	Add routing rule
+Extraction	Function App	Add new extractor
+Normalization	Mapping layer	Add UI field mapping
+Persistence	SQL schema	No structural change (schema-stable)
+Aggregation	Fan-in	Automatically supported
+5.X.3 Detailed Implementation Steps
+Step 1: Classification Configuration
+
+The document must first be identifiable by the classification module.
+
+Activities
+Add new label to Document Intelligence classifier
+Upload sample documents (recommended: 10–20 samples minimum)
+Train and publish classifier model
+Update classification thresholds if required
+Output
+"doc_type": "NEW_DOC_TYPE"
+📌 CCD Tip
+
+Add a small table here:
+
+Field	Value
+Model Type	Custom Classifier
+Training Samples	10–20
+Confidence Threshold	e.g., 0.7
+Step 2: Routing (Fan-Out Update)
+
+Update the fan-out logic to route the new document type.
+
+Decision Point
+Condition	Routing Action
+Extractable document	Send to Service Bus queue
+Non-extractable	Store in SQL staging
+Implementation
+Add new doc_type condition
+Map to:
+existing queue OR
+create new queue (if domain-specific)
+Example
+if doc_type == "NEW_DOC_TYPE":
+    send_to_queue("new-doc-queue")
+Output
+Message emitted to queue OR
+Record inserted into SQL
+Step 3: Extraction Implementation
+
+The extraction module is responsible for generating structured fields.
+
+Options
+Approach	When to Use
+Prebuilt Model	Standard documents (ID, passport, etc.)
+Custom DI Model	Semi-structured documents
+OCR + LLM	Complex or highly variable documents
+Activities
+Configure Azure Document Intelligence model
+Implement extractor function
+Map raw output → extracted_fields
+Output Format
+"extracted_fields": {
+  "FieldName": {
+    "value": "...",
+    "confidence": 90
+  }
+}
+Step 4: Normalization (Heights Mapping)
+
+Transform extracted data into Heights-compatible schema.
+
+Transformation Types
+Field mapping (rename fields)
+Data formatting (dates, casing)
+Structural changes (e.g., name splitting)
+Null/default handling
+Output
+"ui_display_fields": {
+  "FieldName": {
+    "value": "...",
+    "confidence": 90,
+    "edited_sw": "N",
+    "field_type": "STRING"
+  }
+}
+📌 Add Table Here
+Extracted Field	UI Field	Transformation
+FullName	FirstName / LastName	Split
+DOB	Date Of Birth	Format YYYY-MM-DD
+Step 5: Validation Rules
+
+Define validation logic for new document fields.
+
+Examples
+Mandatory fields
+Confidence thresholds
+Value format validation
+Optional
+Flag low-confidence fields for HITL review
+Step 6: Testing & Validation
+Testing Types
+Type	Description
+Unit Testing	Extractor + normalization
+Integration Testing	Full pipeline
+UAT	Business validation
+Validation Criteria
+Classification accuracy ≥ threshold
+Field-level extraction accuracy
+UI mapping correctness
+No pipeline failures
+Step 7: Deployment & Monitoring
+Deployment
+Deploy Function App changes
+Update configuration (queues, env vars)
+Monitoring
+Track:
+failure rates
+confidence scores
+processing latency
+5.X.4 Estimated Effort
+Task	Effort
+Classification setup	0.5 – 1 day
+Routing update	0.5 day
+Extraction (prebuilt)	1 – 2 days
+Extraction (custom model)	3 – 5 days
+Normalization	1 – 2 days
+Testing	1 – 2 days
+Deployment	0.5 day
+Total Effort
+Scenario	Duration
+Prebuilt model	3 – 5 days
+Custom model	5 – 10 days
+5.X.5 Required Resources
+Technical Resources
+Resource	Purpose
+Azure Document Intelligence	Classification + extraction
+Azure Service Bus	Queue routing
+Azure Blob Storage	Document storage
+Azure SQL	Intermediate storage
+Azure Functions	Processing logic
+Human Resources
+Role	Responsibility
+AI/ML Engineer	Model + extraction
+Backend Engineer	Routing + normalization
+QA Engineer	Testing
+5.X.6 Dependencies & Risks
+Availability of training data
+Document variability (format/layout)
+Model accuracy and confidence levels
+Schema alignment with Heights
+Queue capacity and scaling
+5.X.7 Summary
+
+Onboarding a new document type requires updates across classification, routing, extraction, and normalization layers. The system is designed to be modular, allowing new document types to be integrated with minimal impact on existing workflows while maintaining schema consistency and processing reliability.
