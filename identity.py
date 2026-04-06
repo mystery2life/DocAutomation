@@ -10313,3 +10313,175 @@ If you want, I can next:
 
 connect this with fan-out + identity queue routing (very important linkage)
 or refine confidence + HITL logic specifically for identity docs 👍
+
+
+[-------------------------------------------------------------------------
+                                                                                                                                                                                     
+7. Deployment Strategy
+7.1 Overview
+
+The Document Processing System is deployed using Azure Resource Manager (ARM) templates to ensure consistent, repeatable, and environment-independent infrastructure provisioning.
+
+The ARM template recreates the complete infrastructure currently hosted in the Deloitte Azure sandbox within the target DHHS Azure environment.
+
+Post-deployment steps include application configuration, database setup, and AI model training.
+
+7.2 Infrastructure Deployment using ARM Template
+
+The ARM template provisions the following Azure resources:
+
+7.2.1 Compute & Application Layer
+Azure Function App (nh-docproc-functionapp-premium)
+App Service Plan (ASP-NHDocumentAIPOCworkRG)
+
+These components host the backend processing logic, including:
+
+Document ingestion APIs
+Classification orchestration
+Extraction pipelines
+7.2.2 Storage Layer
+Azure Storage Account (nhinitialpdfstorage) – stores raw uploaded documents
+Azure Storage Account (nhclassificationdata) – stores classification-related artifacts
+Additional storage (nhdocumentaipocworkb153) – used for intermediate processing / staging
+7.2.3 Messaging Layer
+Azure Service Bus Namespace (nh-sb-blob-to-classification)
+
+Used for:
+
+Asynchronous document processing
+Queue-based decoupling between ingestion, classification, and extraction modules
+7.2.4 Database Layer
+Azure SQL Server (sqlinitialpdfmeta)
+Azure SQL Database (T001_INITIAL_PDF_METADATA)
+
+Used for:
+
+Storing document metadata
+Tracking processing status
+Supporting UI retrieval and prefill workflows
+7.2.5 Monitoring & Observability
+Application Insights (nh-docproc-ai-insights)
+Log Analytics Workspace
+
+Used for:
+
+Logging
+Performance monitoring
+Failure tracking
+Debugging production issues
+7.2.6 AI / Document Processing Layer
+Azure AI Document Intelligence Resource (NH-1744-Doc-AI-Extractor)
+
+Used for:
+
+OCR (Read API)
+Prebuilt models (Pay Stub, ID, etc.)
+Custom classification and extraction models
+7.3 Deployment Strategy
+Primary Approach: ARM Template Deployment
+Infrastructure is deployed using a parameterized ARM template
+Supports multiple environments (Dev, UAT, Prod)
+Ensures consistency across deployments
+Reduces manual setup errors
+Secondary Approach: Manual Deployment (Fallback)
+
+Used when:
+
+Minor resource changes are required
+Debugging environment-specific issues
+Testing incremental updates
+7.4 Post-Deployment Configuration
+
+After ARM deployment, the system is not fully functional until the following configurations are completed:
+
+7.4.1 Application Configuration
+Configure Function App settings:
+Storage connection strings
+Service Bus connection strings
+SQL connection string
+Document Intelligence endpoint and key
+OpenAI / LLM configurations (if used)
+Set environment variables securely (preferably via Key Vault)
+7.4.2 Function App Code Deployment
+Deploy Python backend code to Function App
+Ensure:
+Dependencies are installed
+Runtime version matches development environment
+API endpoints are accessible
+7.4.3 Database Setup
+Create required tables and schema in SQL Database
+Apply:
+Metadata tables
+Status tracking tables
+Any indexing required for performance
+7.4.4 Messaging Configuration
+Create Service Bus queues/topics:
+Ingestion queue
+Classification queue
+Extraction queue
+Configure:
+Retry policies
+Dead-letter queues (DLQ)
+7.4.5 Storage Configuration
+Create required containers:
+Raw documents container
+Processed documents container
+Temporary staging container
+Set access policies and lifecycle rules if required
+7.5 AI Model Setup and Training
+
+The ARM template creates the Document Intelligence resource, but does not include trained models.
+
+The following steps must be performed:
+
+7.5.1 Custom Classification Model
+Upload labeled training dataset
+Train classifier to identify document types
+Validate model accuracy
+Publish model and capture model ID
+7.5.2 Custom Extraction Models
+
+For each document type:
+
+Upload labeled datasets
+Train extraction models
+Validate extracted fields
+Publish models and store model IDs
+7.5.3 Model Configuration
+Update application configuration with:
+Classifier model ID
+Extractor model IDs
+Map models to document types in processing logic
+7.6 Validation and Testing
+
+After deployment and configuration:
+
+Upload test documents
+Validate:
+Classification accuracy
+Extraction accuracy
+End-to-end workflow
+Verify:
+Data stored in SQL
+UI prefill functionality
+Error handling and retries
+7.7 Security and Access Configuration
+Configure:
+Role-based access control (RBAC)
+Managed identities (if used)
+Key Vault integration for secrets
+Ensure:
+No hardcoded credentials
+Proper access isolation per environment
+7.8 Summary
+
+The ARM template provisions the full infrastructure stack required for the Document Processing System. However, additional steps such as application deployment, database setup, and AI model training are required to make the system fully operational.
+
+This approach ensures:
+
+Scalability
+Repeatability
+Environment consistency
+Production readiness
+                                                                                                                                                                                     
+                                                                                                                                                                                     
