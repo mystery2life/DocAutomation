@@ -10483,5 +10483,77 @@ Scalability
 Repeatability
 Environment consistency
 Production readiness
-                                                                                                                                                                                     
+
+---------------------------------------------------------------------------------
+
+
+
+Flow Overview
+MuleSoft acts as a confidential client registered in Microsoft Entra ID
+Azure ingestion API is protected using App Registration / Enterprise Application
+MuleSoft retrieves an access token using client credentials
+The token is passed in the API request to Azure for validation
+The actual business payload (document + metadata) is sent along with the authenticated request
+Step-by-Step Authentication Flow
+App Registration in Azure
+An application is registered in Microsoft Entra ID
+Client ID and Tenant ID are generated
+Client Secret is stored securely in MuleSoft (or Azure Key Vault)
+Token Generation (Client Credentials Flow)
+
+MuleSoft sends a request to Azure AD token endpoint:
+
+POST https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token
+
+Request Parameters:
+
+client_id
+client_secret
+scope (api://<azure-app-id>/.default)
+grant_type = client_credentials
+Access Token Response
+Azure AD returns a JWT access token
+Token contains:
+issuer
+audience
+expiry
+roles/permissions
+API Invocation (Authenticated Business Request) ✅
+
+MuleSoft calls Azure ingestion API with token and business payload:
+
+Headers:
+
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+Payload (Business Data):
+
+{
+  "documentId": "uuid-123",
+  "documentType": "paystub",
+  "fileBytes": "<base64_encoded_pdf>",
+  "metadata": {
+    "source": "HEIGHTS",
+    "receivedDate": "2026-04-07"
+  }
+}
+The request includes both:
+Authentication token (for security)
+Business payload (actual document and metadata for processing)
+Token Validation in Azure
+
+Azure validates:
+
+token signature
+issuer (Azure AD)
+audience (API App ID)
+expiration
+Request Processing
+If token is valid → request is accepted
+Azure ingestion API processes the business payload:
+Stores document in Blob Storage
+Publishes message to Service Bus
+Persists metadata and audit details
+If token is invalid → request is rejected (401 Unauthorized)
                                                                                                                                                                                      
