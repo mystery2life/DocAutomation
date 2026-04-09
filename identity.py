@@ -10557,3 +10557,156 @@ Publishes message to Service Bus
 Persists metadata and audit details
 If token is invalid → request is rejected (401 Unauthorized)
                                                                                                                                                                                      
+----------------------------------------------------------------------------------
+
+
+def _ui_num_and_conf(entry):
+    """
+    Reads UI-style node:
+    {
+        "value": ...,
+        "confidence": ...,
+        "edited_sw": "N",
+        "field_type": ...
+    }
+    Returns (numeric_value_or_None, confidence_or_None)
+    """
+    if not isinstance(entry, dict):
+        return None, None
+
+    value = entry.get("value")
+    conf = entry.get("confidence")
+
+    if value in (None, ""):
+        return None, conf
+
+    try:
+        if isinstance(value, str):
+            cleaned = value.replace("$", "").replace(",", "").strip()
+            if cleaned == "":
+                return None, conf
+            return float(cleaned), conf
+        return float(value), conf
+    except Exception:
+        return None, conf
+
+
+def _derive_final_four_pay_details_ui(table_rows: list[dict]) -> list[dict]:
+    """
+    Input: normalized UI rows from 'Final Four Paychecks'
+    Output: derived UI rows for 'Final Four Pay Details'
+    """
+    derived_rows = []
+
+    for row in table_rows[:4]:
+        if not isinstance(row, dict):
+            row = {}
+
+        payment_entry = row.get("Actual Date Paid", {})
+        payment_value = payment_entry.get("value") if isinstance(payment_entry, dict) else None
+        payment_conf = payment_entry.get("confidence") if isinstance(payment_entry, dict) else None
+
+        gross_wages, gw_conf = _ui_num_and_conf(row.get("Gross Wages"))
+        tips, tips_conf = _ui_num_and_conf(row.get("Tips"))
+        bonus, bonus_conf = _ui_num_and_conf(row.get("Bonus"))
+        commission, comm_conf = _ui_num_and_conf(row.get("Commission"))
+        hours, hours_conf = _ui_num_and_conf(row.get("# of Hours"))
+
+        # Sum only available components
+        income_components = [
+            ("Gross Wages", gross_wages, gw_conf),
+            ("Tips", tips, tips_conf),
+            ("Bonus", bonus, bonus_conf),
+            ("Commission", commission, comm_conf),
+        ]
+
+        available_income_values = [v for _, v, _ in income_components if v is not None]
+        available_income_confs = [c for _, v, c in income_components if v is not None and c is not None]
+
+        gross_income = round(sum(available_income_values), 2) if available_income_values else None
+        gross_income_conf = min(available_income_confs) if available_income_confs else None
+
+        total_hours = round(hours, 2) if hours is not None else None
+        total_hours_conf = hours_conf
+
+        avg_pay = None
+        if gross_income is not None and total_hours not in (None, 0):
+            avg_pay = round(gross_income / total_hours, 2)
+
+        avg_pay_conf_candidates = [c for c in [gross_income_conf, total_hours_conf] if c is not None]
+        avg_pay_conf = min(avg_pay_conf_candidates) if avg_pay_conf_candidates else None
+
+        derived_rows.append({
+            "Payment Date": {
+                "value": payment_value,
+                "confidence": payment_conf,
+                "edited_sw": "N",
+                "field_type": "DATE"
+            },
+            "Gross Income": {
+                "value": gross_income,
+                "confidence": gross_income_conf,
+                "edited_sw": "N",
+                "field_type": "AMOUNT"
+            },
+            "Total Hours": {
+                "value": total_hours,
+                "confidence": total_hours_conf,
+                "edited_sw": "N",
+                "field_type": "AMOUNT"
+            },
+            "Avg Pay": {
+                "value": avg_pay,
+                "confidence": avg_pay_conf,
+                "edited_sw": "N",
+                "field_type": "AMOUNT"
+            },
+            "Frequency": {
+                "value": "Weekly",
+                "confidence": None,
+                "edited_sw": "N",
+                "field_type": "STRING"
+            }
+        })
+
+    return derived_rows
+
+
+
+if field == "FinalFourPayCheckTable":
+    table_source = normalized_entry if isinstance(normalized_entry, list) else []
+    table_output: List[Dict[str, Dict[str, Any]]] = []
+
+    for idx in range(4):
+        week_entry = table_source[idx] if idx < len(table_source) and isinstance(table_source[idx], dict) else {}
+        week_dict: Dict[str, Dict[str, Any]] = {}
+
+        for label, source_key, col_type in FINAL_FOUR_COLUMNS:
+            if source_key == "NumOfHours" and isinstance(week_entry, dict):
+                cell = week_entry.get("NumOfHours", week_entry.get("Num of Hours", {}))
+            else:
+                cell = week_entry.get(source_key, {}) if isinstance(week_entry, dict) else {}
+
+            if isinstance(cell, dict):
+                value = cell.get("value")
+                confidence = cell.get("confidence")
+            else:
+                value = cell
+                confidence = None
+
+            norm_value, norm_conf = normalize_by_field_type(value, confidence, col_type)
+            week_dict[label] = {
+                "value": norm_value,
+                "confidence": norm_conf,
+                "edited_sw": "N",
+                "field_type": col_type,
+            }
+
+        table_output.append(week_dict)
+
+    ui_display_fields[ui_name] = table_output
+
+    # NEW NODE
+    ui_display_fields["Final Four Pay Details"] = _derive_final_four_pay_details_ui(table_output)
+
+    continue
