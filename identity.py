@@ -10710,3 +10710,7 @@ if field == "FinalFourPayCheckTable":
     ui_display_fields["Final Four Pay Details"] = _derive_final_four_pay_details_ui(table_output)
 
     continue
+
+
+
+Classification confidence can be lower for certain document types because the Azure Document Intelligence classifier relies on signals such as extracted text, layout structure, and key-value patterns. Documents like Social Security cards (SSC) contain very limited text and minimal structural variation, which provides fewer distinguishing features compared to richer documents like pay stubs or employment verification forms. In addition, some classes in our dataset share overlapping attributes (such as names and identifiers), causing the model to distribute confidence across multiple plausible classes rather than assigning a single high score. Based on empirical observations from our dataset, we see that even with moderate confidence scores (e.g., 40–60%), the predicted class is still consistently correct for these low-information document types.
