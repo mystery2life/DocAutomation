@@ -10714,3 +10714,91 @@ if field == "FinalFourPayCheckTable":
 
 
 Classification confidence can be lower for certain document types because the Azure Document Intelligence classifier relies on signals such as extracted text, layout structure, and key-value patterns. Documents like Social Security cards (SSC) contain very limited text and minimal structural variation, which provides fewer distinguishing features compared to richer documents like pay stubs or employment verification forms. In addition, some classes in our dataset share overlapping attributes (such as names and identifiers), causing the model to distribute confidence across multiple plausible classes rather than assigning a single high score. Based on empirical observations from our dataset, we see that even with moderate confidence scores (e.g., 40–60%), the predicted class is still consistently correct for these low-information document types.
+
+
+
+
+
+
+
+
+
+import fitz  # PyMuPDF
+import os
+
+
+def split_pdf_to_two_pages(input_pdf_path, output_folder, split_ratio=0.7, overlap=20):
+    """
+    Splits a single-page PDF into a 2-page PDF:
+    - Page 1: Top portion (e.g., 70%)
+    - Page 2: Bottom portion (remaining)
+    
+    Args:
+        input_pdf_path (str): Path to input PDF (must be single page)
+        output_folder (str): Folder where output PDF will be saved
+        split_ratio (float): Split percentage (default 0.7)
+        overlap (int): Pixel overlap to avoid cutting text
+    """
+
+    # Validate input
+    if not os.path.exists(input_pdf_path):
+        raise Exception("Input PDF not found")
+
+    os.makedirs(output_folder, exist_ok=True)
+
+    # Load PDF
+    doc = fitz.open(input_pdf_path)
+
+    if len(doc) != 1:
+        raise Exception("Input PDF must have exactly 1 page")
+
+    page = doc[0]
+    rect = page.rect
+
+    # Calculate split point
+    split_y = rect.height * split_ratio
+
+    # Create new PDF
+    new_doc = fitz.open()
+
+    # -------- PAGE 1 (Top portion) --------
+    top_rect = fitz.Rect(0, 0, rect.width, split_y + overlap)
+
+    page1 = new_doc.new_page(width=rect.width, height=rect.height)
+    page1.show_pdf_page(
+        fitz.Rect(0, 0, rect.width, split_y),
+        doc,
+        0,
+        clip=top_rect
+    )
+
+    # -------- PAGE 2 (Bottom portion) --------
+    bottom_rect = fitz.Rect(0, split_y - overlap, rect.width, rect.height)
+
+    page2 = new_doc.new_page(width=rect.width, height=rect.height)
+    page2.show_pdf_page(
+        fitz.Rect(0, 0, rect.width, rect.height - split_y),
+        doc,
+        0,
+        clip=bottom_rect
+    )
+
+    # -------- Save output --------
+    input_filename = os.path.basename(input_pdf_path)
+    name, ext = os.path.splitext(input_filename)
+
+    output_pdf_path = os.path.join(output_folder, f"{name}_2pages.pdf")
+
+    new_doc.save(output_pdf_path)
+
+    print(f"✅ Output saved at: {output_pdf_path}")
+
+
+# -----------------------------
+# Example Usage
+# -----------------------------
+if __name__ == "__main__":
+    input_pdf = r"C:\Users\venka\OneDrive\Desktop\Clocktower Place\FiLLED dOCS\Venkat Driving License.pdf"   # 🔁 change this
+    output_folder = r"C:\Users\venka\OneDrive\Desktop\Clocktower Place\FiLLED dOCS\Test"  # 🔁 change this
+
+    split_pdf_to_two_pages(input_pdf, output_folder)
