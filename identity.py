@@ -10802,3 +10802,44 @@ if __name__ == "__main__":
     output_folder = r"C:\Users\venka\OneDrive\Desktop\Clocktower Place\FiLLED dOCS\Test"  # 🔁 change this
 
     split_pdf_to_two_pages(input_pdf, output_folder)
+
+
+
+---------------------------------################################################################
+
+
+
+# ---------------------------------------
+# Save merged payload to Azure Table
+# ---------------------------------------
+
+try:
+
+    table_entity = {
+
+        "PartitionKey": datetime.utcnow().strftime("%Y%m%d"),
+
+        "RowKey": parent_uuid,
+
+        "blob_path": str(blob_path),
+
+        "document_local_name": str(document_local_name),
+
+        "created_at": datetime.utcnow().isoformat(),
+
+        "payload_json": json.dumps(final_payload)
+    }
+
+    table_client.upsert_entity(table_entity)
+
+    logging.info(
+        "Merged payload saved to Azure Table Storage for UUID: %s",
+        parent_uuid
+    )
+
+except Exception as table_ex:
+
+    logging.exception(
+        "Failed saving merged payload to Azure Table Storage: %s",
+        table_ex
+    )
