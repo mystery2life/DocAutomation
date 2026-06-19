@@ -10843,3 +10843,113 @@ except Exception as table_ex:
         "Failed saving merged payload to Azure Table Storage: %s",
         table_ex
     )
+
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                      
+
+
+
+
+
+
+
+
+
+
+
+
+                          -------------------
+                          # DocProc Deployment Status – Current Progress
+
+## Completed
+
+### Core Infrastructure
+
+* Created Function App: docproc-ingest-fn
+* Created Function App Storage Account: docprocfuncdevstg
+* Created Application Insights
+* Enabled System Assigned Managed Identity on Function App
+* Verified successful Function App deployment
+* Verified Flex Consumption hosting plan configuration
+
+### Storage
+
+* Created Function App runtime storage account
+* Storage account security configuration completed
+* TLS 1.2 enabled
+* Secure transfer enabled
+* Encryption configured using Microsoft-managed keys
+
+### Entra ID / OAuth Configuration
+
+* Created App Registration: docproc-ingest-api
+* Created App Registration: docproc-mule-client
+* Configured Application ID URI
+* Created custom API scope
+* Created application role: DocProc.Submit
+* Added API permission from Mule client to DocProc API
+* Established application-to-application OAuth design
+
+### Identity
+
+* Managed Identity enabled on Function App
+* Verified identity registration in Entra ID
+* Verified principal creation
+
+### Architecture & Design
+
+* Ingestion architecture finalized
+* Service Bus routing design finalized
+* SQL persistence approach finalized
+* Aggregation workflow finalized
+* OAuth authentication design finalized
+* Managed Identity authentication approach finalized
+* Resource naming convention finalized
+
+### Security Review
+
+* Reviewed RBAC model
+* Reviewed Managed Identity access model
+* Reviewed private endpoint strategy
+* Reviewed storage security approach
+* Reviewed OAuth security flow
+
+---
+
+## Remaining Work
+
+### Administrative Actions Required
+
+* Grant Admin Consent for Mule Client → DocProc API permissions
+* Assign RBAC permissions to Function App Managed Identity
+
+### Azure Resources
+
+* Create Azure Service Bus Namespace and Queues
+* Create Azure SQL Database
+* Create Azure Key Vault
+* Create Azure OpenAI Resource
+* Create Document Intelligence Resource
+
+### Document Intelligence
+
+* Train Custom Classifier Model
+* Train Employment Verification Extraction Model
+* Publish and validate models
+
+### Application Development
+
+* Deploy Ingest Function code
+* Deploy Classification Function code
+* Deploy Employment Extraction Function code
+* Deploy Identity Extraction Function code
+* Deploy Aggregator Function code
+
+### Testing
+
+* OAuth authentication testing
+* Managed Identity testing
+* Service Bus integration testing
+* SQL integration testing
+* End-to-end workflow testing
+* Mule integration testing
