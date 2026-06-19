@@ -10953,3 +10953,28 @@ except Exception as table_ex:
 * SQL integration testing
 * End-to-end workflow testing
 * Mule integration testing
+
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                      
+
+
+
+
+
+
+
+
+
+
+
+    Hi Team,
+
+The Function App, storage account, Application Insights, Managed Identity, and Entra ID application registrations have been created and configured. OAuth scopes, application roles, and API permissions have also been set up.
+
+The next steps are currently pending administrative approvals for Entra ID consent and RBAC role assignments required for Managed Identity access to Azure resources. Once those permissions are granted, the remaining resource provisioning, configuration, deployment, and testing activities can proceed.
+
+Please refer to the attached Excel tracker for the detailed task list and current status.
+
+Thanks,
+Venkat
+                          
