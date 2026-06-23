@@ -10959,22 +10959,206 @@ except Exception as table_ex:
 
 
 
+from employment_module.bank_statement_adaptor import process_bank_statement
+                                                                                                                                                                                                                                                                                                                                                                                                                                                      
+ elif doc_type in [
+    "bankstatement",
+    "bank_statement",
+    "BANKSTATEMENT",
+    "BANK_STATEMENT",
+    "bank statement"
+]:
+    try:
+        split_pages = list(range(1, len(pages) + 1)) if pages else None
+
+        extraction = process_bank_statement(
+            sub_pdf_bytes,
+            pages=split_pages,
+            filename=blob_path
+        )
+
+        if not extraction or not isinstance(extraction, dict):
+            logging.error("Bank statement extractor returned no data")
+            status = "Failed"
+            extracted_fields = {}
+            ui_display_fields = {}
+        else:
+            status = extraction.get("status", "Success")
+            extracted_fields = extraction.get("extracted_fields", {})
+            ui_display_fields = extraction.get("ui_display_fields", {})
+
+    except Exception as ex:
+        logging.exception("Bank statement extractor failed: %s", ex)
+        status = "Failed"
+        extracted_fields = {}
+        ui_display_fields = {}
+
+-----------------------------------------------------------------------------------------------------
+
+import os
+import sys
+import json
+import logging
+from io import BytesIO
+
+try:
+    from employment_module.clients import di_client
+except ModuleNotFoundError:
+    from clients import di_client
 
 
+BANK_STATEMENT_MODEL_ID = "prebuilt-bankStatement.us"
 
 
+def begin_analyze(model_id: str, file_bytes: bytes, pages=None, **kwargs):
+    pages_arg = None
+
+    if pages:
+        pages_arg = ",".join(str(int(p)) for p in pages)
+
+    common_args = {
+        "model_id": model_id
+    }
+
+    if pages_arg:
+        common_args["pages"] = pages_arg
+
+    try:
+        return di_client.begin_analyze_document(
+            **common_args,
+            document=BytesIO(file_bytes),
+            **kwargs
+        )
+    except TypeError:
+        return di_client.begin_analyze_document(
+            **common_args,
+            body=BytesIO(file_bytes),
+            **kwargs
+        )
 
 
+def get_field_value(field):
+    if getattr(field, "value_date", None):
+        return field.value_date.isoformat()
+
+    if getattr(field, "value_number", None) is not None:
+        return field.value_number
+
+    if getattr(field, "value_currency", None):
+        return field.value_currency.amount
+
+    if getattr(field, "value_string", None):
+        return field.value_string
+
+    if getattr(field, "value_phone_number", None):
+        return field.value_phone_number
+
+    if getattr(field, "value_address", None):
+        return str(field.value_address)
+
+    if getattr(field, "content", None):
+        return field.content
+
+    return None
 
 
-    Hi Team,
+def confidence_score(field):
+    conf = getattr(field, "confidence", None)
 
-The Function App, storage account, Application Insights, Managed Identity, and Entra ID application registrations have been created and configured. OAuth scopes, application roles, and API permissions have also been set up.
+    if conf is None:
+        return None
 
-The next steps are currently pending administrative approvals for Entra ID consent and RBAC role assignments required for Managed Identity access to Azure resources. Once those permissions are granted, the remaining resource provisioning, configuration, deployment, and testing activities can proceed.
+    return round(conf * 100, 2)
 
-Please refer to the attached Excel tracker for the detailed task list and current status.
 
-Thanks,
-Venkat
+def serialize_field(field):
+    field_type = getattr(field, "type", None)
+
+    if field_type == "array":
+        return {
+            "value": [
+                serialize_field(item)
+                for item in getattr(field, "value_array", []) or []
+            ],
+            "confidence": confidence_score(field),
+            "edited_sw": "N"
+        }
+
+    if field_type == "object":
+        return {
+            "value": {
+                key: serialize_field(value)
+                for key, value in (getattr(field, "value_object", {}) or {}).items()
+            },
+            "confidence": confidence_score(field),
+            "edited_sw": "N"
+        }
+
+    return {
+        "value": get_field_value(field),
+        "confidence": confidence_score(field),
+        "edited_sw": "N"
+    }
+
+
+def extract_bank_statement_structured(file_bytes: bytes, pages=None) -> dict:
+    poller = begin_analyze(
+        BANK_STATEMENT_MODEL_ID,
+        file_bytes,
+        pages=pages,
+        content_type="application/octet-stream"
+    )
+
+    result = poller.result()
+    doc = result.documents[0] if getattr(result, "documents", []) else None
+
+    extracted = {}
+
+    if doc:
+        for field_name, field in doc.fields.items():
+            extracted[field_name] = serialize_field(field)
+
+    return extracted
+
+
+def process_bank_statement(
+    file_bytes: bytes,
+    pages: list[int] | None = None,
+    filename: str = ""
+) -> dict:
+    logging.info(f"[BankStatement] processing {filename}, pages={pages}")
+
+    extracted_fields = extract_bank_statement_structured(
+        file_bytes=file_bytes,
+        pages=pages
+    )
+
+    return {
+        "status": "Success",
+        "extracted_fields": extracted_fields,
+        "ui_display_fields": extracted_fields
+    }
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python -m employment_module.bank_statement_adaptor <pdf_path> [page_numbers]")
+        sys.exit(1)
+
+    pdf_path = sys.argv[1]
+    pages = None
+
+    if len(sys.argv) > 2:
+        pages = [int(p.strip()) for p in sys.argv[2].split(",")]
+
+    with open(pdf_path, "rb") as f:
+        file_bytes = f.read()
+
+    result = process_bank_statement(
+        file_bytes=file_bytes,
+        pages=pages,
+        filename=os.path.basename(pdf_path)
+    )
+
+    print(json.dumps(result, indent=2))
                           
