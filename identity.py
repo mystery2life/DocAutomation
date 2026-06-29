@@ -11568,5 +11568,86 @@ Load balancing
 Centralized monitoring and logging
 Enforcement of enterprise security policies
 Controlled access to internal Mule services
+
+
+-------------------------------------------------------------------------
+
+
+
+Since both applications require tenant-wide Admin Consent, you can combine them into a single request to DoIT.
+
+Subject: Request for Admin Consent – Document AI Microsoft Entra Applications
+
+Hi DoIT Team,
+
+As part of the Document AI integration with New HEIGHTS, we have completed the Microsoft Entra application registrations required for both the inbound API and outbound Azure Service Bus communication.
+
+To complete the configuration, we request Admin Consent for the following application permissions.
+
+1. Inbound API Authentication
+
+Application: docproc-mule-client
+
+This application calls the Azure Function App (docproc-ingest-api) using the OAuth 2.0 Client Credentials flow.
+
+Requested Action
+
+Grant Admin Consent for the DocProcSubmit application permission exposed by docproc-ingest-api.
+
+This permission allows Mule to obtain an OAuth access token from Microsoft Entra ID and securely invoke the Document Processing Azure Function.
+
+2. Outbound Azure Service Bus Authentication
+
+Application: docproc-mule-client-response
+
+This application authenticates with Azure Service Bus using the OAuth 2.0 Client Credentials flow to consume document processing responses from the q-response queue.
+
+Requested Action
+
+Grant Admin Consent for the configured Azure Service Bus API permission assigned to docproc-mule-client-response.
+
+(Azure RBAC role assignment for Azure Service Bus will be configured separately.)
+
+Once the above Admin Consents are granted, both the inbound API authentication and outbound Azure Service Bus authentication will be fully enabled using Microsoft Entra ID and OAuth 2.0.
+
+Please let me know if any additional information is required.
+
+Thank you,
+
+Venkata Narasa Reddy Boreddy
+
+Next give outbound mail aswell
+
+Here's a concise, technical email for TSG based on your architecture and the networking approach discussed.
+
+Subject: Request for Outbound Network Connectivity – Azure Service Bus Integration
+
+Hi TSG Team,
+
+As part of the Document AI integration with New HEIGHTS, Mule will consume processed document responses from Azure Service Bus using the Azure Service Bus Connector.
+
+The integration uses an outbound-initiated connection from the Mule environment to Azure. Azure does not initiate any inbound connections to the State network.
+
+Communication Flow
+Azure completes document processing.
+The final JSON response is published to the Azure Service Bus q-response queue.
+The Mule Azure Service Bus Connector authenticates with Microsoft Entra ID using OAuth 2.0 Client Credentials.
+Mule establishes a secure AMQP connection to Azure Service Bus and continuously listens for new messages.
+When a message is available, Mule retrieves it over the existing connection and forwards it through the proposed Mule Proxy/Load Balancer to the New HEIGHTS application.
+Network Requirements
+
+Please allow the following outbound connectivity from the Mule environment:
+
+TCP 5671 – Azure Service Bus (AMQP over TLS 1.2)
+TCP 443 – Microsoft Entra ID (OAuth token acquisition)
+TCP 443 – Azure Service Bus (AMQP over WebSockets fallback, if required)
+
+No inbound firewall rules are required since all communication is initiated from the Mule environment.
+
+Please let us know if you require the Azure Service Bus namespace, FQDNs, or any additional endpoint details for firewall configuration.
+
+Thank you,
+
+Venkata Narasa Reddy Boreddy
                                                                                                                                                                                                                                                                                                     
                                                                                                                                                                                                                                                                                                     
