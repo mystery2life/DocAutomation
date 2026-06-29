@@ -11491,3 +11491,82 @@ Anonymous Access	Disabled
 Encryption in Transit	Yes
 
 I think this is appropriate for DoIT security reviewers. It explains the authentication flow, what travels over the Internet, how OAuth works, token lifetime, authorization, encryption, and the security controls without overwhelming readers with Azure implementation details. You can create a second one for the outbound (Azure → Service Bus → Mule) flow in the same style.
+                                                                                                                                                                                                                                                                                                    
+
+                                                                                                                                                                                                                                                                                                    
+----------------------------------------------------------------------------------------------------------
+
+                                                                                                                                                                                                                                                                                                    
+                                                                                                                                                                                                                                                                                                    
+
+                                                                                                                                                                                                                                                                                                    
+                                                                                                                                                                                                                                                                                                    
+Outbound Authentication and Response Flow
+
+(Insert Architecture Diagram Here)
+
+Overview
+
+Once document processing is complete, Azure publishes the final extracted JSON to an Azure Service Bus response queue. Mule retrieves the response using the Azure Service Bus Connector and forwards it through the Mule Proxy/Load Balancer to the New HEIGHTS application.
+
+The communication model is asynchronous and uses an outbound-initiated AMQP connection from Mule to Azure Service Bus. Azure does not establish inbound connections into the State network.
+
+Outbound Processing Flow
+Azure processing modules complete document extraction.
+The Aggregation service merges all processor outputs into a single JSON response.
+Azure Function publishes the response message to the Azure Service Bus q-response queue.
+Mule Azure Service Bus Connector authenticates with Microsoft Entra ID using OAuth 2.0 Client Credentials.
+After successful authentication, Mule establishes a secure AMQP-over-TLS connection to Azure Service Bus.
+The connector continuously listens for new messages on the response queue.
+When a response is available, Mule retrieves the message and forwards it through the Mule Proxy/Load Balancer to the New HEIGHTS application.
+Authentication
+
+The Mule Azure Service Bus Connector authenticates using the OAuth 2.0 Client Credentials flow.
+
+Authentication steps:
+
+Mule sends its Client ID and Client Secret to Microsoft Entra ID.
+Microsoft Entra ID validates the application identity.
+An OAuth access token is issued.
+Mule presents the access token when establishing the Azure Service Bus connection.
+Azure Service Bus validates the token before allowing access to the response queue.
+
+Access tokens are short-lived and are automatically renewed by the Azure Service Bus Connector before expiration. Token management is handled internally by the connector and does not require application-level implementation.
+
+Network Communication
+
+Communication between Mule and Azure Service Bus uses an outbound-initiated AMQP long-polling connection.
+
+After authentication, the Azure Service Bus Connector maintains a persistent encrypted connection to Azure Service Bus and continuously listens for new messages.
+
+Azure does not initiate inbound connections to the Mule environment.
+
+As a result:
+
+No inbound firewall ports are required on the State network.
+All communication is initiated from the Mule environment.
+Responses are delivered over the existing authenticated connection.
+Required Network Access
+
+The Mule environment requires outbound connectivity to Azure.
+
+Destination	Port	Purpose
+Microsoft Entra ID	TCP 443	OAuth token acquisition
+Azure Service Bus	TCP 5671	AMQP over TLS 1.2
+Azure Service Bus (fallback)	TCP 443	AMQP over WebSockets (if required)
+
+Only outbound firewall rules are required.
+
+Mule Proxy / Load Balancer
+
+After Mule retrieves the response from Azure Service Bus, it forwards the response through the Mule Proxy/Load Balancer before delivering it to the New HEIGHTS application.
+
+The Mule Proxy provides:
+
+Internal routing
+Load balancing
+Centralized monitoring and logging
+Enforcement of enterprise security policies
+Controlled access to internal Mule services
+                                                                                                                                                                                                                                                                                                    
+                                                                                                                                                                                                                                                                                                    
