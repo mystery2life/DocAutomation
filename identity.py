@@ -11292,3 +11292,202 @@ CREATE TABLE dbo.DocumentExtractionResults
 
 CREATE INDEX IX_DocumentExtractionResults_Parent
 ON dbo.DocumentExtractionResults(parent_uuid);
+
+
+---------------------------------------------------------------
+
+
+
+Document AI – Inbound Authentication and Security Design
+Azure Document Processing – Inbound Request Authentication
+
+(Insert Architecture Diagram Here)
+
+Overview
+
+The Document AI ingestion API is exposed as an Azure Function App (docproc-ingest-api) that receives document processing requests from MuleSoft. Communication between MuleSoft and Azure uses HTTPS with OAuth 2.0 Client Credentials authentication through Microsoft Entra ID (Azure AD).
+
+The solution is designed to ensure:
+
+Mutual trust between MuleSoft and Azure
+No anonymous access to the API
+Encrypted communication in transit
+Short-lived access tokens
+Centralized identity management through Microsoft Entra ID
+Least-privilege authorization using application permissions
+Inbound Processing Flow
+A scheduler within the New HEIGHTS environment prepares a batch request containing:
+UUID
+PDF document (Base64 encoded or file reference)
+Request metadata
+MuleSoft receives the batch request.
+Before calling Azure, MuleSoft authenticates with Microsoft Entra ID using its registered application identity (docproc-mule-client).
+Microsoft Entra ID validates the client credentials and issues an OAuth 2.0 Bearer Access Token.
+MuleSoft invokes the Azure Function HTTPS endpoint over TLS 1.2 or higher.
+The Azure Function validates the JWT access token using Microsoft Entra ID before processing the request.
+If authentication and authorization succeed:
+Metadata is validated.
+PDF is stored in Azure Blob Storage.
+Processing message is placed onto Azure Service Bus.
+
+If authentication fails, the request is rejected before any business processing occurs.
+
+Authentication Components
+Azure API
+
+Application Registration
+
+docproc-ingest-api
+
+Purpose
+
+Protected resource/API that exposes the document ingestion endpoint.
+
+MuleSoft Client
+
+Application Registration
+
+docproc-mule-client
+
+Purpose
+
+Represents MuleSoft when requesting OAuth tokens.
+
+This application authenticates using Client ID and Client Secret.
+
+OAuth 2.0 Client Credentials Flow
+
+The solution uses the OAuth 2.0 Client Credentials grant because communication occurs between two trusted server applications without user interaction.
+
+Authentication sequence:
+
+MuleSoft
+    |
+    | Client ID + Client Secret
+    |
+    V
+Microsoft Entra ID
+    |
+    | validates credentials
+    |
+    V
+Issues JWT Access Token
+    |
+    | HTTPS Authorization: Bearer <token>
+    |
+    V
+Azure Function (docproc-ingest-api)
+
+The Azure Function validates:
+
+Token signature
+Issuing authority
+Audience
+Expiration
+Application permissions
+
+Only valid tokens issued by the organization's Microsoft Entra tenant are accepted.
+
+Access Token Lifetime
+
+Microsoft Entra ID issues short-lived JWT access tokens.
+
+Typical lifetime:
+
+Approximately 60 minutes
+
+Characteristics:
+
+Automatically expires
+Cannot be modified by the client
+MuleSoft requests a new token when required
+No passwords are transmitted to Azure after token issuance
+
+Using short-lived tokens minimizes the risk associated with credential compromise.
+
+Authorization
+
+Authentication confirms the identity of MuleSoft.
+
+Authorization confirms that MuleSoft is permitted to invoke the ingestion API.
+
+The Azure API exposes the DocProc.Submit application permission.
+
+Only the registered MuleSoft client application has been granted this permission through administrator consent.
+
+Any application without this permission receives an authorization failure.
+
+Transport Security
+
+Communication between MuleSoft and Azure occurs over:
+
+HTTPS
+TLS 1.2 or higher
+
+All traffic is encrypted in transit.
+
+The Azure Function App uses Microsoft-managed TLS certificates.
+
+No document data or authentication tokens are transmitted over unencrypted connections.
+
+Credentials
+
+MuleSoft securely stores:
+
+Client ID
+Client Secret
+
+These credentials are used only to obtain an OAuth access token from Microsoft Entra ID.
+
+The Client Secret is never transmitted directly to the Azure Function.
+
+Internet Exposure
+
+The Azure Function endpoint is accessible over HTTPS using the Azure Functions public endpoint.
+
+Although the endpoint is Internet accessible:
+
+Anonymous access is disabled.
+Every request requires a valid OAuth Bearer token.
+Microsoft Entra ID validates the calling application before Azure processes the request.
+Unauthorized requests are rejected before any document processing begins.
+
+Future enhancements such as API Management, IP restrictions, or Private Endpoints can be introduced without changing the authentication model.
+
+Request Payload
+
+Each MuleSoft request contains:
+
+UUID (correlation identifier)
+PDF document
+Associated metadata
+
+Example
+
+{
+  "uuid": "2cb4f7cb-9e0b-43d2-b32f-5f16d54d5a5e",
+  "pdf": "<Base64 Encoded PDF>",
+  "metadata": {
+    "caseId": "123456",
+    "documentType": "Unknown",
+    "receivedDate": "2026-06-29T15:30:00Z"
+  }
+}
+
+The UUID is used throughout the processing pipeline for correlation, auditing, and tracking.
+
+Security Controls Summary
+Control	Implementation
+Authentication	OAuth 2.0 Client Credentials
+Identity Provider	Microsoft Entra ID
+Client Identity	docproc-mule-client
+Protected API	docproc-ingest-api
+Transport Security	HTTPS with TLS 1.2+
+Authorization	Application Permission (DocProc.Submit)
+Token Type	JWT Bearer Token
+Token Lifetime	Approximately 60 minutes
+Credentials Stored By	MuleSoft (Client ID and Client Secret)
+Anonymous Access	Disabled
+Encryption in Transit	Yes
+
+I think this is appropriate for DoIT security reviewers. It explains the authentication flow, what travels over the Internet, how OAuth works, token lifetime, authorization, encryption, and the security controls without overwhelming readers with Azure implementation details. You can create a second one for the outbound (Azure → Service Bus → Mule) flow in the same style.
