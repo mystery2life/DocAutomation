@@ -11162,3 +11162,60 @@ if __name__ == "__main__":
 
     print(json.dumps(result, indent=2))
                           
+
+import logging
+import azure.functions as func
+
+app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
+
+@app.route(route="hello", methods=["GET"])
+def hello(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info("Hello function executed.")
+
+    return func.HttpResponse(
+        "Hello from Azure Flex Consumption!",
+        status_code=200
+    )
+
+{
+  "version": "2.0"
+}
+
+azure-functions
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+          
+
+import logging
+import azure.functions as func
+
+app = func.FunctionApp()
+
+@app.service_bus_queue_trigger(
+    arg_name="msg",
+    queue_name="q-classify",
+    connection="SB_CONNECTION_STRING"
+)
+def servicebus_test(msg: func.ServiceBusMessage):
+
+    body = msg.get_body().decode("utf-8")
+
+    logging.info(f"Message received: {body}")
+
+
+
