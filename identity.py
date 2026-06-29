@@ -11219,3 +11219,76 @@ def servicebus_test(msg: func.ServiceBusMessage):
 
 
 
+
+
+
+
+
+-----------------------------------------------
+
+
+
+CREATE TABLE dbo.DocumentAudit
+(
+    UID UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    AuditId BIGINT IDENTITY(1,1) NOT NULL,
+
+    MsgId NVARCHAR(200) NULL,
+    SequenceNumber BIGINT NULL,
+
+    Body NVARCHAR(100) NULL,
+
+    EnqueuedUtc DATETIME2 NULL,
+    ProcessedUtc DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+
+    uuid NVARCHAR(100) NOT NULL,
+    document_local_name NVARCHAR(500) NULL,
+    batch_id NVARCHAR(100) NULL,
+    blob_path NVARCHAR(1000) NULL,
+
+    rid NVARCHAR(100) NULL,
+    json_data NVARCHAR(MAX) NULL,
+
+    confidence FLOAT NULL,
+    split_doc_id NVARCHAR(200) NULL,
+    doc_type NVARCHAR(100) NULL,
+
+    pages NVARCHAR(MAX) NULL,
+    doc_pixel_coordinates NVARCHAR(MAX) NULL,
+    ui_display_fields NVARCHAR(MAX) NULL,
+
+    CONSTRAINT PK_DocumentAudit
+        PRIMARY KEY (AuditId)
+);
+
+CREATE INDEX IX_DocumentAudit_UUID
+ON dbo.DocumentAudit(uuid);
+
+CREATE INDEX IX_DocumentAudit_ProcessedUtc
+ON dbo.DocumentAudit(ProcessedUtc DESC);
+
+--------------------------------------------------
+
+CREATE TABLE dbo.DocumentExtractionResults
+(
+    parent_uuid NVARCHAR(100) NOT NULL,
+
+    split_doc_id NVARCHAR(200) NOT NULL,
+
+    doc_type NVARCHAR(100) NULL,
+
+    pages NVARCHAR(MAX) NULL,
+
+    doc_pixel_coordinates NVARCHAR(MAX) NULL,
+
+    result_json NVARCHAR(MAX) NULL,
+
+    created_utc DATETIME2 NOT NULL
+        DEFAULT SYSUTCDATETIME(),
+
+    CONSTRAINT PK_DocumentExtractionResults
+        PRIMARY KEY(parent_uuid, split_doc_id)
+);
+
+CREATE INDEX IX_DocumentExtractionResults_Parent
+ON dbo.DocumentExtractionResults(parent_uuid);
