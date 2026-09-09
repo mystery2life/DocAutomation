@@ -11650,4 +11650,34 @@ Thank you,
 
 Venkata Narasa Reddy Boreddy
                                                                                                                                                                                                                                                                                                     
-                                                                                                                                                                                                                                                                                                    
+
+
+
+
+
+
+
+
+
+ Extract all visible fields from the attached PDF.
+
+For each field, return:
+- field_name
+- value
+- confidence_percent
+- confidence_reason
+
+Be conservative when assigning confidence:
+- 90–100%: Only when every character is clearly readable and
+  the field's meaning is unambiguous. Do not use this range
+  merely because a value looks plausible.
+- 60–89%: The value is clearly supported, with no specific
+  uncertainty about a character or its meaning.
+- Below 60%: If there is even slight doubt about any character,
+  the complete value, or which field it belongs to.
+- If missing or unreadable, return value: null and confidence: 0.
+
+For partially readable values, use [unclear] for unreadable
+portions and keep confidence below 60%.
+Never guess, autocomplete, or infer missing characters.
+Explain any uncertainty briefly in confidence_reason.
