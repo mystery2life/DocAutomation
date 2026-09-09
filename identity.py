@@ -11681,3 +11681,52 @@ For partially readable values, use [unclear] for unreadable
 portions and keep confidence below 60%.
 Never guess, autocomplete, or infer missing characters.
 Explain any uncertainty briefly in confidence_reason.
+
+
+ def extract_birth_certificate_llm_fields(file_bytes: bytes) -> dict:
+    # Converts the template's doubled braces into normal JSON braces.
+    prompt = BIRTH_CERT_EXTRACTION_PROMPT.format()
+
+    encoded_pdf = base64.b64encode(file_bytes).decode("utf-8")
+
+    resp = aoai_client.responses.create(
+        model=AZURE_OPENAI_DEPLOYMENT,
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_file",
+                        "filename": "birth_certificate.pdf",
+                        "file_data": (
+                            f"data:application/pdf;base64,{encoded_pdf}"
+                        ),
+                    },
+                    {
+                        "type": "input_text",
+                        "text": prompt,
+                    },
+                ],
+            }
+        ],
+        text={"format": {"type": "json_object"}},
+        max_output_tokens=2000,
+        store=False,
+    )
+
+    if resp.status != "completed":
+        raise RuntimeError(
+            f"Birth certificate extraction incomplete: "
+            f"{resp.incomplete_details}"
+        )
+
+    if resp.usage:
+        logging.info(
+            "Birth certificate tokens: input=%s output=%s",
+            resp.usage.input_tokens,
+            resp.usage.output_tokens,
+        )
+
+    return json.loads(resp.output_text)
+
+    llm_fields = extract_birth_certificate_llm_fields(file_bytes)
