@@ -11730,3 +11730,188 @@ Explain any uncertainty briefly in confidence_reason.
     return json.loads(resp.output_text)
 
     llm_fields = extract_birth_certificate_llm_fields(file_bytes)
+
+
+
+import json
+import os
+from openai import AzureOpenAI
+
+
+# ============================================================
+# 1. AZURE OPENAI CONFIG
+# ============================================================
+
+client = AzureOpenAI(
+    api_key=os.environ["AZURE_OPENAI_API_KEY"],
+    azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+    api_version="2025-04-01-preview"
+)
+
+DEPLOYMENT_NAME = os.environ["AZURE_OPENAI_DEPLOYMENT"]
+
+
+# ============================================================
+# 2. LOAD JSON FILES
+# ============================================================
+
+def load_json(file_path):
+    with open(file_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+# ============================================================
+# 3. RUN SNAP QC
+# ============================================================
+
+def run_snap_qc(case_json, risk_json):
+
+    prompt = """
+You are a SNAP Quality Control risk analysis engine.
+
+You will receive:
+
+1. CASE_INFORMATION
+   Complete information about a SNAP case.
+
+2. RISK_INDICATORS
+   A list of QC validation rules.
+
+Your job is to evaluate EVERY risk indicator independently
+against the case information.
+
+IMPORTANT RULES:
+
+- Use ONLY information present in CASE_INFORMATION.
+- Do not invent or assume missing values.
+- Evaluate the detection_conditions for each risk indicator.
+- A risk should be flagged only when the case data provides
+  sufficient evidence that the detection condition is satisfied.
+- If information required to evaluate a condition is missing,
+  mark the rule as "INSUFFICIENT_DATA".
+- If the condition is clearly not satisfied, mark it "NOT_FLAGGED".
+- If the condition is satisfied, mark it "FLAGGED".
+- Explain exactly which case values caused the result.
+- Include the relevant recommended_actions from the risk rule.
+- Evaluate ALL supplied risk indicators. Do not stop after finding
+  the first risk.
+
+Return ONLY valid JSON.
+
+Required output format:
+
+{
+  "qc_summary": {
+    "total_rules_evaluated": 0,
+    "total_flagged": 0,
+    "total_not_flagged": 0,
+    "total_insufficient_data": 0
+  },
+  "risk_results": [
+    {
+      "code": "C01",
+      "risk_indicator": "example",
+      "risk_level": "HIGH",
+      "status": "FLAGGED",
+      "reason": "Explain why this rule was flagged.",
+      "evidence": [
+        {
+          "field": "path.to.field",
+          "value": "actual value"
+        }
+      ],
+      "recommended_actions": []
+    }
+  ]
+}
+"""
+
+    user_content = f"""
+CASE_INFORMATION:
+
+{json.dumps(case_json, indent=2)}
+
+RISK_INDICATORS:
+
+{json.dumps(risk_json, indent=2)}
+"""
+
+    response = client.chat.completions.create(
+        model=DEPLOYMENT_NAME,
+        temperature=0,
+        response_format={"type": "json_object"},
+        messages=[
+            {
+                "role": "system",
+                "content": prompt
+            },
+            {
+                "role": "user",
+                "content": user_content
+            }
+        ]
+    )
+
+    return json.loads(response.choices[0].message.content)
+
+
+# ============================================================
+# 4. MAIN
+# ============================================================
+
+if __name__ == "__main__":
+
+    CASE_FILE = "Case_info_283594226.json"
+    RISK_FILE = "Risk Indicators.json"
+
+    print("Loading case...")
+    case_data = load_json(CASE_FILE)
+
+    print("Loading risk indicators...")
+    risk_data = load_json(RISK_FILE)
+
+    print("Running SNAP QC...")
+    results = run_snap_qc(
+        case_json=case_data,
+        risk_json=risk_data
+    )
+
+    # Save complete result
+    with open("snap_qc_results.json", "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2)
+
+    print("\n========== SNAP QC RESULTS ==========\n")
+
+    summary = results["qc_summary"]
+
+    print("Rules evaluated :", summary["total_rules_evaluated"])
+    print("Flagged         :", summary["total_flagged"])
+    print("Not flagged     :", summary["total_not_flagged"])
+    print("Insufficient    :", summary["total_insufficient_data"])
+
+    print("\n========== FLAGGED RISKS ==========\n")
+
+    for risk in results["risk_results"]:
+
+        if risk["status"] == "FLAGGED":
+
+            print("------------------------------------")
+            print("Code       :", risk["code"])
+            print("Risk       :", risk["risk_indicator"])
+            print("Risk Level :", risk["risk_level"])
+            print("Reason     :", risk["reason"])
+
+            print("\nEvidence:")
+
+            for evidence in risk.get("evidence", []):
+                print(
+                    f"  {evidence['field']} = "
+                    f"{evidence['value']}"
+                )
+
+            print("\nRecommended Actions:")
+
+            for action in risk.get("recommended_actions", []):
+                print(" -", action)
+
+    print("\nFull result saved to snap_qc_results.json")
