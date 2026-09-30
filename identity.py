@@ -11915,3 +11915,36 @@ if __name__ == "__main__":
                 print(" -", action)
 
     print("\nFull result saved to snap_qc_results.json")
+
+
+
+
+
+
+6. Security & Access
+The TANF AI Document Recognition and Processing solution uses a multi-layered security approach to protect PII and restrict access to authorized systems and services. Authentication and authorization are managed through Microsoft Entra ID and OAuth 2.0, while Azure security services protect credentials, data, and service-to-service communication.
+Security Controls
+Security Control	Purpose
+Microsoft Entra ID / OAuth 2.0	Authenticates and authorizes MuleSoft access to the Azure Function API using short-lived access tokens.
+Managed Identity	Provides passwordless authentication between Azure services and supports least-privilege access.
+Azure Key Vault	Securely stores application secrets, API keys, and database connection information.
+Azure Policy	Enforces applicable security and compliance controls across the Azure environment.
+Encryption	Data at rest in Azure SQL Database and Blob Storage is encrypted; data in transit uses TLS 1.2 or higher.
+Azure Monitor / Logging	Provides application monitoring, auditing, correlation, and troubleshooting capabilities.
+
+
+Access & Authentication
+- Inbound: New HEIGHTS → MuleSoft → Azure Function.
+- MuleSoft authenticates with Microsoft Entra ID using the registered docproc-mule-client application and OAuth 2.0 Client Credentials flow.
+- MuleSoft invokes docproc-ingest-api over HTTPS using a short-lived bearer access token.
+- The Azure Function validates the token signature, issuer, audience, expiration, and required DocProc.Submit application permission before processing.
+- Anonymous access is disabled, and access is limited to authorized applications and services.
+- Azure services use Managed Identity and least-privilege permissions wherever applicable.
+Data & Response Security
+- PII and documents are transmitted only over encrypted TLS 1.2+ connections.
+- Data stored in Azure Blob Storage and Azure SQL Database is encrypted at rest.
+- Secrets and credentials are maintained in Azure Key Vault and are not hard-coded in application code.
+- After processing, the consolidated response is published to the Azure Service Bus q-response queue.
+- MuleSoft securely retrieves responses using AMQP over TLS (TCP 5671) or AMQP over WebSockets (TCP 443) and forwards them to New HEIGHTS.
+- Azure does not initiate inbound connections to the State network; response retrieval is initiated by MuleSoft.
+- Each request contains a UUID/correlation ID to support end-to-end logging, monitoring, auditing, and troubleshooting.
