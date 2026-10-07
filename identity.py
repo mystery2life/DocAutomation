@@ -11948,3 +11948,405 @@ Data & Response Security
 - MuleSoft securely retrieves responses using AMQP over TLS (TCP 5671) or AMQP over WebSockets (TCP 443) and forwards them to New HEIGHTS.
 - Azure does not initiate inbound connections to the State network; response retrieval is initiated by MuleSoft.
 - Each request contains a UUID/correlation ID to support end-to-end logging, monitoring, auditing, and troubleshooting.
+
+
+
+
+
+
+import os
+import sys
+import json
+from datetime import date, datetime
+from decimal import Decimal
+
+from dotenv import load_dotenv
+
+sys.path.insert(
+    0,
+    os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__))
+    )
+)
+
+from merge_pdf_pages import merge_pdf_pages_vertical
+from employment_module.clients import di_client
+
+load_dotenv()
+
+BANK_STATEMENT_MODEL_ID = os.getenv(
+    "BANK_STATEMENT_MODEL_ID",
+    "prebuilt-bankStatement.us"
+)
+
+
+# --------------------------------------------------
+# 1. FIELD CONFIGURATION
+# --------------------------------------------------
+
+TOP_LEVEL_FIELDS = [
+    "BankName",
+    "BankAddress",
+    "AccountHolderName",
+    "AccountHolderAddress",
+    "StatementStartDate",
+    "StatementEndDate"
+]
+
+ACCOUNT_FIELDS = [
+    "AccountNumber",
+    "AccountType",
+    "BeginningBalance",
+    "EndingBalance",
+    "TotalServiceFees"
+]
+
+TRANSACTION_FIELDS = [
+    "Date",
+    "Description",
+    "CheckNumber",
+    "DepositAmount",
+    "WithdrawalAmount"
+]
+
+CHECK_FIELDS = [
+    "Number",
+    "Date",
+    "Amount"
+]
+
+
+# --------------------------------------------------
+# 2. CONFIDENCE
+# --------------------------------------------------
+
+def _confidence_pct(field):
+    if field is None:
+        return None
+
+    confidence = getattr(
+        field,
+        "confidence",
+        None
+    )
+
+    if confidence is None:
+        return None
+
+    return round(float(confidence) * 100, 2)
+
+
+# --------------------------------------------------
+# 3. FIELD VALUE EXTRACTION
+# --------------------------------------------------
+
+def _field_value(field):
+
+    if field is None:
+        return None
+
+    field_type = getattr(field, "type", None)
+
+    # Addresses remain a single string
+    if field_type == "address":
+        return getattr(field, "content", None)
+
+    # Prefer typed values
+    attributes = {
+        "string": "value_string",
+        "date": "value_date",
+        "time": "value_time",
+        "number": "value_number",
+        "integer": "value_integer",
+        "currency": "value_currency",
+        "boolean": "value_boolean",
+        "phoneNumber": "value_phone_number"
+    }
+
+    attr = attributes.get(field_type)
+
+    value = (
+        getattr(field, attr, None)
+        if attr
+        else None
+    )
+
+    if value is None:
+        value = getattr(field, "content", None)
+
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+
+    if isinstance(value, Decimal):
+        return float(value)
+
+    # Currency object -> numeric amount
+    if hasattr(value, "amount"):
+        return value.amount
+
+    return value
+
+
+# --------------------------------------------------
+# 4. CONVERT FIELD TO VALUE + CONFIDENCE
+# --------------------------------------------------
+
+def _field_to_json(field):
+
+    if field is None:
+        return {
+            "value": None,
+            "confidence": None
+        }
+
+    return {
+        "value": _field_value(field),
+        "confidence": _confidence_pct(field)
+    }
+
+
+# --------------------------------------------------
+# 5. TRANSACTIONS ARRAY
+# --------------------------------------------------
+
+def _extract_transactions(transactions_field):
+
+    transactions = []
+
+    if transactions_field is None:
+        return transactions
+
+    transaction_array = (
+        getattr(transactions_field, "value_array", None)
+        or []
+    )
+
+    for transaction in transaction_array:
+
+        fields = (
+            getattr(transaction, "value_object", None)
+            or {}
+        )
+
+        transaction_json = {}
+
+        for field_name in TRANSACTION_FIELDS:
+            transaction_json[field_name] = (
+                _field_to_json(
+                    fields.get(field_name)
+                )
+            )
+
+        transactions.append(transaction_json)
+
+    return transactions
+
+
+# --------------------------------------------------
+# 6. CHECKS ARRAY
+# --------------------------------------------------
+
+def _extract_checks(checks_field):
+
+    checks = []
+
+    if checks_field is None:
+        return checks
+
+    checks_array = (
+        getattr(checks_field, "value_array", None)
+        or []
+    )
+
+    for check in checks_array:
+
+        fields = (
+            getattr(check, "value_object", None)
+            or {}
+        )
+
+        check_json = {}
+
+        for field_name in CHECK_FIELDS:
+            check_json[field_name] = (
+                _field_to_json(
+                    fields.get(field_name)
+                )
+            )
+
+        checks.append(check_json)
+
+    return checks
+
+
+# --------------------------------------------------
+# 7. FLATTEN ACCOUNT INFORMATION
+# --------------------------------------------------
+
+def _flatten_account(
+    statement_fields,
+    account_field
+):
+
+    output = {}
+
+    # Bank + account holder + statement fields
+    for field_name in TOP_LEVEL_FIELDS:
+        output[field_name] = _field_to_json(
+            statement_fields.get(field_name)
+        )
+
+    account_fields = (
+        getattr(account_field, "value_object", None)
+        or {}
+    )
+
+    # Account information at top level
+    for field_name in ACCOUNT_FIELDS:
+        output[field_name] = _field_to_json(
+            account_fields.get(field_name)
+        )
+
+    # Nested transactions
+    output["Transactions"] = (
+        _extract_transactions(
+            account_fields.get("Transactions")
+        )
+    )
+
+    # Nested checks
+    output["Checks"] = (
+        _extract_checks(
+            account_fields.get("Checks")
+        )
+    )
+
+    return output
+
+
+# --------------------------------------------------
+# 8. AZURE DOCUMENT INTELLIGENCE CALL
+# --------------------------------------------------
+
+def _begin_analyze(
+    model_id: str,
+    file_bytes: bytes,
+    **kwargs
+):
+
+    try:
+        return di_client.begin_analyze_document(
+            model_id=model_id,
+            body=file_bytes,
+            **kwargs
+        )
+
+    except TypeError:
+        return di_client.begin_analyze_document(
+            model_id=model_id,
+            document=file_bytes,
+            **kwargs
+        )
+
+
+# --------------------------------------------------
+# 9. EXTRACT BANK STATEMENT
+# --------------------------------------------------
+
+def extract_bankstatement_structured(
+    file_bytes: bytes,
+    pages: list[int] | None = None
+) -> list[dict]:
+
+    # Use the same PDF merging utility as EV
+    file_bytes = merge_pdf_pages_vertical(
+        file_bytes,
+        pages
+    )
+
+    kwargs = {
+        "content_type": "application/octet-stream"
+    }
+
+    poller = _begin_analyze(
+        model_id=BANK_STATEMENT_MODEL_ID,
+        file_bytes=file_bytes,
+        **kwargs
+    )
+
+    result = poller.result()
+
+    extracted_statements = []
+
+    documents = getattr(
+        result,
+        "documents",
+        None
+    ) or []
+
+    for document in documents:
+
+        statement_fields = (
+            getattr(document, "fields", None)
+            or {}
+        )
+
+        accounts_field = statement_fields.get(
+            "Accounts"
+        )
+
+        accounts = (
+            getattr(accounts_field, "value_array", None)
+            or []
+        )
+
+        # One flattened JSON per account
+        for account in accounts:
+
+            account_json = _flatten_account(
+                statement_fields,
+                account
+            )
+
+            extracted_statements.append(
+                account_json
+            )
+
+        # If no accounts were found,
+        # preserve bank/statement information
+        if not accounts:
+
+            empty_account = _flatten_account(
+                statement_fields,
+                None
+            )
+
+            extracted_statements.append(
+                empty_account
+            )
+
+    return extracted_statements
+
+
+# --------------------------------------------------
+# 10. MAIN PROCESS FUNCTION
+# --------------------------------------------------
+
+def process_bankstatement(
+    file_bytes: bytes,
+    pages: list[int] | None = None,
+    filename: str = ""
+) -> dict:
+
+    extracted = extract_bankstatement_structured(
+        file_bytes=file_bytes,
+        pages=pages
+    )
+
+    return {
+        "extracted_fields": (
+            extracted[0]
+            if len(extracted) == 1
+            else extracted
+        )
+    }
