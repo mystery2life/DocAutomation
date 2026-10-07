@@ -12350,3 +12350,648 @@ def process_bankstatement(
             else extracted
         )
     }
+
+
+
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+import os
+import sys
+import json
+import logging
+from datetime import date, datetime
+from decimal import Decimal
+
+import fitz
+from dotenv import load_dotenv
+
+from azure.ai.documentintelligence import DocumentIntelligenceClient
+from azure.core.credentials import AzureKeyCredential
+
+
+# ==================================================
+# 1. CONFIGURATION
+# ==================================================
+
+load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+logger = logging.getLogger(__name__)
+
+AZURE_DI_ENDPOINT = os.getenv("AZURE_DI_ENDPOINT")
+AZURE_DI_KEY = os.getenv("AZURE_DI_KEY")
+
+BANK_STATEMENT_MODEL_ID = os.getenv(
+    "BANK_STATEMENT_MODEL_ID",
+    "prebuilt-bankStatement.us"
+)
+
+if not AZURE_DI_ENDPOINT or not AZURE_DI_KEY:
+    raise ValueError(
+        "AZURE_DI_ENDPOINT and AZURE_DI_KEY "
+        "must be configured in environment variables."
+    )
+
+di_client = DocumentIntelligenceClient(
+    endpoint=AZURE_DI_ENDPOINT,
+    credential=AzureKeyCredential(AZURE_DI_KEY),
+    api_version="2024-11-30"
+)
+
+
+# ==================================================
+# 2. FIELD CONFIGURATION
+# ==================================================
+
+TOP_LEVEL_FIELDS = [
+    "BankName",
+    "BankAddress",
+    "AccountHolderName",
+    "AccountHolderAddress",
+    "StatementStartDate",
+    "StatementEndDate"
+]
+
+ACCOUNT_FIELDS = [
+    "AccountNumber",
+    "AccountType",
+    "BeginningBalance",
+    "EndingBalance",
+    "TotalServiceFees"
+]
+
+TRANSACTION_FIELDS = [
+    "Date",
+    "Description",
+    "CheckNumber",
+    "DepositAmount",
+    "WithdrawalAmount"
+]
+
+CHECK_FIELDS = [
+    "Number",
+    "Date",
+    "Amount"
+]
+
+
+# ==================================================
+# 3. SELECT PDF PAGES
+# ==================================================
+
+def select_pdf_pages(
+    file_bytes: bytes,
+    pages: list[int] | None = None
+) -> bytes:
+
+    if not pages:
+        return file_bytes
+
+    with fitz.open(
+        stream=file_bytes,
+        filetype="pdf"
+    ) as source:
+
+        with fitz.open() as destination:
+
+            for page_number in sorted(set(pages)):
+
+                if not 1 <= page_number <= len(source):
+                    raise ValueError(
+                        f"Invalid PDF page: {page_number}"
+                    )
+
+                destination.insert_pdf(
+                    source,
+                    from_page=page_number - 1,
+                    to_page=page_number - 1
+                )
+
+            return destination.tobytes()
+
+
+# ==================================================
+# 4. CONFIDENCE EXTRACTION
+# ==================================================
+
+def _confidence_pct(field):
+
+    if field is None:
+        return None
+
+    confidence = getattr(
+        field,
+        "confidence",
+        None
+    )
+
+    if confidence is None:
+        return None
+
+    return round(float(confidence) * 100, 2)
+
+
+# ==================================================
+# 5. FIELD VALUE EXTRACTION
+# ==================================================
+
+def _field_value(field):
+
+    if field is None:
+        return None
+
+    field_type = getattr(field, "type", None)
+
+    # Address must be a single string
+    if field_type == "address":
+
+        content = getattr(field, "content", None)
+
+        if content:
+            return content
+
+        address = getattr(
+            field,
+            "value_address",
+            None
+        )
+
+        if address is None:
+            return None
+
+        street = " ".join(
+            str(part)
+            for part in [
+                getattr(address, "house_number", None),
+                getattr(address, "road", None)
+            ]
+            if part
+        )
+
+        parts = [
+            street,
+            getattr(address, "city", None),
+            getattr(address, "state", None),
+            getattr(address, "postal_code", None)
+        ]
+
+        return ", ".join(
+            str(part)
+            for part in parts
+            if part
+        ) or None
+
+    attributes = {
+        "string": "value_string",
+        "date": "value_date",
+        "time": "value_time",
+        "number": "value_number",
+        "integer": "value_integer",
+        "currency": "value_currency",
+        "boolean": "value_boolean",
+        "phoneNumber": "value_phone_number"
+    }
+
+    attribute = attributes.get(field_type)
+
+    value = (
+        getattr(field, attribute, None)
+        if attribute
+        else None
+    )
+
+    if value is None:
+        value = getattr(field, "content", None)
+
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+
+    if isinstance(value, Decimal):
+        return float(value)
+
+    if hasattr(value, "amount"):
+        amount = value.amount
+        return float(amount) if amount is not None else None
+
+    return value
+
+
+# ==================================================
+# 6. FIELD TO JSON
+# ==================================================
+
+def _field_to_json(field):
+
+    if field is None:
+        return {
+            "value": None,
+            "confidence": None
+        }
+
+    return {
+        "value": _field_value(field),
+        "confidence": _confidence_pct(field)
+    }
+
+
+# ==================================================
+# 7. EXTRACT TRANSACTIONS
+# ==================================================
+
+def _extract_transactions(transactions_field):
+
+    transactions = []
+
+    if transactions_field is None:
+        return transactions
+
+    transaction_array = (
+        getattr(
+            transactions_field,
+            "value_array",
+            None
+        )
+        or []
+    )
+
+    for transaction in transaction_array:
+
+        fields = (
+            getattr(
+                transaction,
+                "value_object",
+                None
+            )
+            or {}
+        )
+
+        transaction_json = {}
+
+        for field_name in TRANSACTION_FIELDS:
+
+            transaction_json[field_name] = (
+                _field_to_json(
+                    fields.get(field_name)
+                )
+            )
+
+        transactions.append(transaction_json)
+
+    return transactions
+
+
+# ==================================================
+# 8. EXTRACT CHECKS
+# ==================================================
+
+def _extract_checks(checks_field):
+
+    checks = []
+
+    if checks_field is None:
+        return checks
+
+    checks_array = (
+        getattr(
+            checks_field,
+            "value_array",
+            None
+        )
+        or []
+    )
+
+    for check in checks_array:
+
+        fields = (
+            getattr(
+                check,
+                "value_object",
+                None
+            )
+            or {}
+        )
+
+        check_json = {}
+
+        for field_name in CHECK_FIELDS:
+
+            check_json[field_name] = (
+                _field_to_json(
+                    fields.get(field_name)
+                )
+            )
+
+        checks.append(check_json)
+
+    return checks
+
+
+# ==================================================
+# 9. FLATTEN ACCOUNT INFORMATION
+# ==================================================
+
+def _flatten_account(
+    statement_fields,
+    account_field
+):
+
+    output = {}
+
+    # Bank, holder and statement fields
+    for field_name in TOP_LEVEL_FIELDS:
+
+        output[field_name] = _field_to_json(
+            statement_fields.get(field_name)
+        )
+
+    account_fields = (
+        getattr(
+            account_field,
+            "value_object",
+            None
+        )
+        or {}
+    )
+
+    # Account fields at top level
+    for field_name in ACCOUNT_FIELDS:
+
+        output[field_name] = _field_to_json(
+            account_fields.get(field_name)
+        )
+
+    # Transactions array
+    output["Transactions"] = _extract_transactions(
+        account_fields.get("Transactions")
+    )
+
+    # Checks array
+    output["Checks"] = _extract_checks(
+        account_fields.get("Checks")
+    )
+
+    return output
+
+
+# ==================================================
+# 10. AZURE DOCUMENT INTELLIGENCE CALL
+# ==================================================
+
+def _begin_analyze(
+    model_id: str,
+    file_bytes: bytes
+):
+
+    return di_client.begin_analyze_document(
+        model_id=model_id,
+        body=file_bytes,
+        content_type="application/pdf"
+    )
+
+
+# ==================================================
+# 11. EXTRACT BANK STATEMENT
+# ==================================================
+
+def extract_bankstatement_structured(
+    file_bytes: bytes,
+    pages: list[int] | None = None
+) -> list[dict]:
+
+    # Preserve original PDF pages
+    file_bytes = select_pdf_pages(
+        file_bytes,
+        pages
+    )
+
+    logger.info(
+        "Calling Azure Document Intelligence model: %s",
+        BANK_STATEMENT_MODEL_ID
+    )
+
+    poller = _begin_analyze(
+        model_id=BANK_STATEMENT_MODEL_ID,
+        file_bytes=file_bytes
+    )
+
+    result = poller.result()
+
+    extracted_statements = []
+
+    documents = (
+        getattr(result, "documents", None)
+        or []
+    )
+
+    if not documents:
+        logger.warning(
+            "Azure DI returned no documents"
+        )
+
+    for document in documents:
+
+        statement_fields = (
+            getattr(document, "fields", None)
+            or {}
+        )
+
+        accounts_field = statement_fields.get(
+            "Accounts"
+        )
+
+        accounts = (
+            getattr(
+                accounts_field,
+                "value_array",
+                None
+            )
+            or []
+        )
+
+        # One JSON object per account
+        for account in accounts:
+
+            account_json = _flatten_account(
+                statement_fields,
+                account
+            )
+
+            extracted_statements.append(
+                account_json
+            )
+
+        # Preserve statement information
+        # even when no accounts are detected
+        if not accounts:
+
+            logger.warning(
+                "No accounts found in statement"
+            )
+
+            extracted_statements.append(
+                _flatten_account(
+                    statement_fields,
+                    None
+                )
+            )
+
+    logger.info(
+        "Extracted %d account record(s)",
+        len(extracted_statements)
+    )
+
+    return extracted_statements
+
+
+# ==================================================
+# 12. MAIN PROCESS FUNCTION
+# ==================================================
+
+def process_bankstatement(
+    file_bytes: bytes,
+    pages: list[int] | None = None,
+    filename: str = ""
+) -> dict:
+
+    extracted = extract_bankstatement_structured(
+        file_bytes=file_bytes,
+        pages=pages
+    )
+
+    return {
+        "extracted_fields": (
+            extracted[0]
+            if len(extracted) == 1
+            else extracted
+        )
+    }
+
+
+# ==================================================
+# 13. LOCAL TEST - RUN FROM VS CODE TERMINAL
+# ==================================================
+
+if __name__ == "__main__":
+
+    # CHANGE THIS TO YOUR LOCAL PDF FILE PATH
+    PDF_FILE_PATH = (
+        r"C:\Users\YourUsername\Desktop"
+        r"\sample_bank_statement.pdf"
+    )
+
+    # Output JSON will be saved in the same
+    # directory as the input PDF
+    OUTPUT_JSON_PATH = os.path.join(
+        os.path.dirname(PDF_FILE_PATH),
+        "bankstatement_output.json"
+    )
+
+    try:
+
+        if not os.path.isfile(PDF_FILE_PATH):
+            raise FileNotFoundError(
+                f"PDF file not found: {PDF_FILE_PATH}"
+            )
+
+        logger.info(
+            "Reading PDF: %s",
+            PDF_FILE_PATH
+        )
+
+        with open(PDF_FILE_PATH, "rb") as file:
+            pdf_bytes = file.read()
+
+        # CALL THE MAIN PROCESS FUNCTION
+        result = process_bankstatement(
+            file_bytes=pdf_bytes,
+            pages=None,
+            filename=os.path.basename(PDF_FILE_PATH)
+        )
+
+        # Save extracted JSON
+        with open(
+            OUTPUT_JSON_PATH,
+            "w",
+            encoding="utf-8"
+        ) as output_file:
+
+            json.dump(
+                result,
+                output_file,
+                indent=2,
+                ensure_ascii=False,
+                default=str
+            )
+
+        print("\n" + "=" * 60)
+        print("BANK STATEMENT EXTRACTION COMPLETED")
+        print("=" * 60)
+
+        print(
+            json.dumps(
+                result,
+                indent=2,
+                ensure_ascii=False,
+                default=str
+            )
+        )
+
+        print("\nOutput saved to:")
+        print(OUTPUT_JSON_PATH)
+
+        # Summary
+        extracted = result["extracted_fields"]
+
+        if isinstance(extracted, dict):
+            accounts = [extracted]
+        else:
+            accounts = extracted
+
+        print("\n" + "=" * 60)
+        print("EXTRACTION SUMMARY")
+        print("=" * 60)
+
+        print("Accounts extracted:", len(accounts))
+
+        for index, account in enumerate(accounts, 1):
+
+            print(f"\nAccount {index}")
+
+            print(
+                "Bank:",
+                account["BankName"]["value"]
+            )
+
+            print(
+                "Account Number:",
+                account["AccountNumber"]["value"]
+            )
+
+            print(
+                "Transactions:",
+                len(account["Transactions"])
+            )
+
+            print(
+                "Checks:",
+                len(account["Checks"])
+            )
+
+    except Exception:
+        logger.exception(
+            "Bank statement extraction failed"
+        )
+        sys.exit(1)
