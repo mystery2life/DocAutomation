@@ -12995,3 +12995,119 @@ if __name__ == "__main__":
             "Bank statement extraction failed"
         )
         sys.exit(1)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+1. TotalHoursWorked — Follow these rules in order:
+
+RULE 1: EXPLICIT CURRENT HOURS
+- Look for "Total Hours Worked", "Total Hrs Worked",
+  "Total Hours", "Total Hrs", or similar.
+- Extract ONLY from the CURRENT, THIS PERIOD,
+  or current HRS/UNITS column.
+- Never select YTD hours for this field.
+- Do not add duplicate totals or subtotals.
+
+RULE 2: CALCULATE IF TOTAL IS MISSING
+- If no explicit current total exists, sum hours
+  from distinct worked-hour earnings rows.
+- Include Regular, Hourly, Overtime, Training,
+  and other actual worked-hour categories.
+- Exclude YTD hours, duplicate rows, adjustments,
+  and non-worked leave hours.
+
+RULE 3: PREVENT COLUMN CONFUSION
+- Identify HOURS, RATE, CURRENT EARNINGS, and
+  YTD EARNINGS as separate columns.
+- Never extract a dollar amount as hours.
+- Never extract an hourly rate as total hours.
+- Use the column heading and row association
+  to determine which value represents hours.
+- For simple hourly earnings rows, check whether
+  Hours × Rate approximately equals Earnings.
+- Use this only as a validation check, not as
+  permission to invent missing hours.
+
+RULE 4: CURRENT VS YTD
+- Current-period hours and YTD hours are different.
+- Never substitute YTD hours for current hours.
+- Never sum current and YTD hours.
+- If only YTD hours are available, return null.
+
+RULE 5: TIME VALUES
+- Do not confuse clock times, time-in/time-out,
+  or dates with hours worked.
+- Convert time durations only when explicitly
+  provided as worked durations.
+- Do not infer hours from timestamps.
+
+RULE 6: MISSING OR AMBIGUOUS VALUES
+- If the correct current-period hours cannot
+  be identified reliably, return null.
+- Never estimate from gross pay, salary,
+  hourly rate, or pay frequency.
+
+Return float rounded to 2 decimal places.
+
+
+
+---------------------------------------------------------------------------------------
+
+
+2. YTDHoursWorked — Follow these rules in order:
+
+RULE 1: EXPLICIT YTD HOURS
+- Look for "Total Hours Worked", "Total Hrs Worked",
+  "Total Hours", "Total Hrs", or similar.
+- Extract ONLY from the YTD, YEAR TO DATE,
+  or YTD HRS/UNITS column.
+
+RULE 2: CALCULATE IF TOTAL IS MISSING
+- Sum distinct worked-hour rows from the YTD
+  hours column only.
+- Exclude duplicate totals, subtotals,
+  and adjustment-only rows.
+
+RULE 3: PREVENT COLUMN CONFUSION
+- Never confuse YTD hours with YTD earnings,
+  current earnings, hourly rates, or current hours.
+- Validate the source column before selecting
+  the value.
+
+RULE 4: MISSING VALUES
+- If YTD hours cannot be reliably identified,
+  return null.
+- Do not estimate using current hours,
+  pay frequency, or salary.
+
+Return float rounded to 2 decimal places.
