@@ -13111,3 +13111,232 @@ RULE 4: MISSING VALUES
   pay frequency, or salary.
 
 Return float rounded to 2 decimal places.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+------------------------------------------------------------------------
+
+
+
+import azure.functions as func
+from azure.data.tables import TableServiceClient
+from azure.servicebus import ServiceBusClient, ServiceBusMessage
+from azure.identity import DefaultAzureCredential
+
+import os
+import json
+import gzip
+import base64
+import logging
+import re
+
+app = func.FunctionApp()
+
+TABLE_NAME = "mergedpayloadtracking"
+
+
+@app.route(
+    route="replay-payloads",
+    methods=["POST"],
+    auth_level=func.AuthLevel.FUNCTION
+)
+def replay_payloads(req: func.HttpRequest) -> func.HttpResponse:
+
+    try:
+        body = req.get_json()
+
+        processing_date = body.get("date")
+        uuids = body.get("uuids", [])
+        dry_run = body.get("dry_run", True)
+
+        if (
+            not isinstance(processing_date, str)
+            or not re.fullmatch(r"\d{8}", processing_date)
+        ):
+            return func.HttpResponse(
+                "date must be YYYYMMDD",
+                status_code=400
+            )
+
+        if (
+            not isinstance(uuids, list)
+            or not uuids
+            or len(uuids) > 100
+            or any(not isinstance(u, str) for u in uuids)
+        ):
+            return func.HttpResponse(
+                "Provide an array of 1 to 100 UUID strings",
+                status_code=400
+            )
+
+        if not isinstance(dry_run, bool):
+            return func.HttpResponse(
+                "dry_run must be a boolean",
+                status_code=400
+            )
+
+        # Deduplicate requested UUIDs
+        uuids = list(dict.fromkeys(uuids))
+
+        credential = DefaultAzureCredential()
+
+        table_service = TableServiceClient(
+            endpoint=os.environ["TABLE_ENDPOINT"],
+            credential=credential
+        )
+
+        table_client = table_service.get_table_client(
+            TABLE_NAME
+        )
+
+        queue_name = os.environ["REPLAY_QUEUE_NAME"]
+
+        results = []
+
+        # Service Bus sender
+        with ServiceBusClient(
+            fully_qualified_namespace=os.environ[
+                "SERVICEBUS_NAMESPACE"
+            ],
+            credential=credential
+        ) as sb_client:
+
+            with sb_client.get_queue_sender(
+                queue_name=queue_name
+            ) as sender:
+
+                for uuid in uuids:
+
+                    try:
+                        entity = table_client.get_entity(
+                            partition_key=processing_date,
+                            row_key=uuid
+                        )
+
+                        encoded_payload = entity["payload_json"]
+
+                        # Restore original JSON
+                        decoded = base64.b64decode(
+                            encoded_payload
+                        )
+
+                        raw_json = gzip.decompress(decoded)
+
+                        payload = json.loads(
+                            raw_json.decode("utf-8")
+                        )
+
+                        # Validate original UUID
+                        if payload.get("uuid") != uuid:
+                            raise ValueError(
+                                "UUID mismatch in stored payload"
+                            )
+
+                        if not dry_run:
+
+                            message = ServiceBusMessage(
+                                json.dumps(payload),
+                                content_type="application/json"
+                            )
+
+                            sender.send_messages(message)
+
+                        results.append({
+                            "uuid": uuid,
+                            "status": (
+                                "validated"
+                                if dry_run
+                                else "sent"
+                            )
+                        })
+
+                    except Exception as e:
+
+                        logging.error(
+                            "Replay failed for UUID %s: %s",
+                            uuid,
+                            type(e).__name__
+                        )
+
+                        results.append({
+                            "uuid": uuid,
+                            "status": "failed",
+                            "error_type": type(e).__name__
+                        })
+
+        return func.HttpResponse(
+            json.dumps({
+                "date": processing_date,
+                "queue": queue_name,
+                "dry_run": dry_run,
+                "total": len(uuids),
+                "results": results
+            }),
+            mimetype="application/json",
+            status_code=200
+        )
+
+    except Exception:
+        logging.exception("Replay request failed")
+
+        return func.HttpResponse(
+            "Internal replay error",
+            status_code=500
+        )
+_______________________________________________________________________________________________________
+
+
+import requests
+import os
+
+url = os.environ["REPLAY_FUNCTION_URL"]
+key = os.environ["REPLAY_FUNCTION_KEY"]
+
+payload = {
+    "date": "20261020",
+    "uuids": [
+        "uuid-1",
+        "uuid-2",
+        "uuid-3"
+    ],
+    "dry_run": True
+}
+
+response = requests.post(
+    url,
+    headers={"x-functions-key": key},
+    json=payload,
+    timeout=120
+)
+
+print(response.status_code)
+print(response.json())
+
+-----------------------------------------
+
+
+
+{
+  "date": "20261020",
+  "uuids": [
+    "uuid-1",
+    "uuid-2",
+    "uuid-3"
+  ],
+  "dry_run": true
+}
