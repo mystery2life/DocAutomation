@@ -13340,3 +13340,107 @@ print(response.json())
   ],
   "dry_run": true
 }
+
+                                                                                                                                                                                                                                                                                                    
+
+--------------------------------------
+
+
+pip install opencv-python-headless numpy pymupdf
+
+
+import cv2
+import numpy as np
+import fitz
+
+
+def analyze_image(image):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 1. Blur / sharpness
+    blur_score = float(
+        cv2.Laplacian(gray, cv2.CV_64F).var()
+    )
+
+    # 2. Mean brightness
+    brightness = float(np.mean(gray))
+
+    # 3. Contrast
+    contrast = float(np.std(gray))
+
+    # 4. Dark-pixel percentage
+    dark_percentage = float(
+        np.mean(gray < 50) * 100
+    )
+
+    # 5. Isolated black speckles
+    _, binary = cv2.threshold(
+        gray, 0, 255,
+        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+    )
+
+    count, labels, stats, _ = (
+        cv2.connectedComponentsWithStats(
+            binary, connectivity=8
+        )
+    )
+
+    # Very small foreground components.
+    # This is only a proxy for speckle noise.
+    small_components = sum(
+        1 for i in range(1, count)
+        if 1 <= stats[i, cv2.CC_STAT_AREA] <= 4
+    )
+
+    return {
+        "blur_score": round(blur_score, 2),
+        "brightness": round(brightness, 2),
+        "contrast": round(contrast, 2),
+        "dark_pixel_percentage": round(
+            dark_percentage, 2
+        ),
+        "small_black_components": small_components
+    }
+
+
+def analyze_document(file_path):
+    results = []
+
+    if file_path.lower().endswith(".pdf"):
+        with fitz.open(file_path) as pdf:
+            for page_number, page in enumerate(pdf, 1):
+                pix = page.get_pixmap(
+                    matrix=fitz.Matrix(2, 2),
+                    colorspace=fitz.csRGB,
+                    alpha=False
+                )
+
+                image = np.frombuffer(
+                    pix.samples, dtype=np.uint8
+                ).reshape(pix.height, pix.width, 3)
+
+                image = cv2.cvtColor(
+                    image, cv2.COLOR_RGB2BGR
+                )
+
+                results.append({
+                    "page": page_number,
+                    **analyze_image(image)
+                })
+    else:
+        image = cv2.imread(file_path)
+        if image is None:
+            raise ValueError("Unable to read image")
+
+        results.append({
+            "page": 1,
+            **analyze_image(image)
+        })
+
+    return results
+
+
+if __name__ == "__main__":
+    result = analyze_document(r"C:\Users\venka\OneDrive\Desktop\Job Docs\Standard Letter from Supplier to Candidates.pdf")
+    for page in result:
+        print(page)
