@@ -13444,3 +13444,690 @@ if __name__ == "__main__":
     result = analyze_document(r"C:\Users\venka\OneDrive\Desktop\Job Docs\Standard Letter from Supplier to Candidates.pdf")
     for page in result:
         print(page)
+
+
+
+
+------------------------------------------------------------------------------------------
+
+
+
+
+          
+import cv2
+import numpy as np
+import pymupdf
+import json
+import os
+from pathlib import Path
+
+
+# ============================================================
+# BLOCK 1: CONFIGURATION
+# ============================================================
+# These are experimental thresholds.
+# We will calibrate them using real good and bad scans.
+
+CONFIG = {
+    "render_dpi": 200,
+
+    # Pixel values range from 0 (black) to 255 (white)
+    "black_pixel_threshold": 45,
+    "white_pixel_threshold": 245,
+
+    # Blur thresholds (Laplacian variance)
+    "severe_blur_threshold": 50,
+    "moderate_blur_threshold": 150,
+
+    # Blackout detection thresholds (percentages)
+    "dark_pixel_threshold": 65,
+    "large_black_region_threshold": 15,
+    "dark_tile_threshold": 12,
+
+    # Blank / washed-out detection
+    "blank_white_threshold": 99.5,
+    "low_contrast_threshold": 12,
+
+    # Minimum area for a document crop
+    "min_crop_area_ratio": 0.005,
+
+    # Add padding around detected document
+    "crop_padding": 15
+}
+
+
+# ============================================================
+# BLOCK 2: LOAD PDF OR IMAGE
+# ============================================================
+# Purpose:
+# - Open PDF/JPG/PNG
+# - Convert each PDF page into a grayscale image
+# - Keep original images unchanged
+#
+# Important:
+# Rendering at 200 DPI standardizes our analysis,
+# but does NOT improve the original scan's resolution.
+
+def load_document(file_path):
+
+    pages = []
+    extension = Path(file_path).suffix.lower()
+
+    if extension == ".pdf":
+
+        with pymupdf.open(file_path) as pdf:
+
+            for page_number, page in enumerate(pdf):
+
+                # Detect whether PDF has selectable text.
+                native_text = bool(page.get_text().strip())
+
+                pix = page.get_pixmap(
+                    dpi=CONFIG["render_dpi"],
+                    colorspace=pymupdf.csGRAY,
+                    alpha=False
+                )
+
+                image = np.frombuffer(
+                    pix.samples,
+                    dtype=np.uint8
+                ).reshape(
+                    pix.height,
+                    pix.width
+                ).copy()
+
+                pages.append({
+                    "page": page_number + 1,
+                    "image": image,
+                    "native_text": native_text
+                })
+
+    elif extension in [".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"]:
+
+        image = cv2.imread(
+            file_path,
+            cv2.IMREAD_GRAYSCALE
+        )
+
+        if image is None:
+            raise ValueError("Unable to read image")
+
+        pages.append({
+            "page": 1,
+            "image": image,
+            "native_text": False
+        })
+
+    else:
+        raise ValueError("Unsupported file format")
+
+    return pages
+
+
+# ============================================================
+# BLOCK 3: DETECT AND CROP DOCUMENT
+# ============================================================
+# Purpose:
+# Remove large white margins around small documents,
+# such as SSN cards or driver's licenses.
+#
+# Logic:
+# 1. Find pixels different from white.
+# 2. Connect nearby regions.
+# 3. Find large contours.
+# 4. Select a plausible document bounding box.
+# 5. Crop with padding.
+#
+# Limitation:
+# This is heuristic detection, not a trained document
+# boundary detector. It may fail on faint or borderless pages.
+
+def crop_document(gray):
+
+    height, width = gray.shape
+    page_area = height * width
+
+    # Light smoothing reduces isolated pixel noise.
+    blurred = cv2.GaussianBlur(
+        gray,
+        (5, 5),
+        0
+    )
+
+    # Pixels darker than 245 become foreground.
+    _, mask = cv2.threshold(
+        blurred,
+        CONFIG["white_pixel_threshold"],
+        255,
+        cv2.THRESH_BINARY_INV
+    )
+
+    # Connect nearby features.
+    kernel_width = max(5, width // 60)
+    kernel_height = max(5, height // 60)
+
+    kernel = cv2.getStructuringElement(
+        cv2.MORPH_RECT,
+        (kernel_width, kernel_height)
+    )
+
+    connected = cv2.morphologyEx(
+        mask,
+        cv2.MORPH_CLOSE,
+        kernel
+    )
+
+    contours, _ = cv2.findContours(
+        connected,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE
+    )
+
+    if not contours:
+        return gray, "NO_DOCUMENT_DETECTED", (
+            0, 0, width, height
+        )
+
+    candidates = []
+
+    for contour in contours:
+
+        x, y, w, h = cv2.boundingRect(contour)
+
+        area_ratio = (w * h) / page_area
+
+        if area_ratio >= CONFIG["min_crop_area_ratio"]:
+            candidates.append((x, y, w, h))
+
+    if not candidates:
+        return gray, "CROP_UNCERTAIN", (
+            0, 0, width, height
+        )
+
+    # Select largest bounding rectangle.
+    x, y, w, h = max(
+        candidates,
+        key=lambda box: box[2] * box[3]
+    )
+
+    padding = CONFIG["crop_padding"]
+
+    x1 = max(0, x - padding)
+    y1 = max(0, y - padding)
+
+    x2 = min(width, x + w + padding)
+    y2 = min(height, y + h + padding)
+
+    cropped = gray[y1:y2, x1:x2]
+
+    # Extremely small crops are unreliable.
+    if cropped.size == 0:
+        return gray, "CROP_UNCERTAIN", (
+            0, 0, width, height
+        )
+
+    return cropped, "CROPPED", (
+        x1, y1, x2, y2
+    )
+
+
+# ============================================================
+# BLOCK 4: CALCULATE BLUR SCORE
+# ============================================================
+# Purpose:
+# Detect loss of sharpness.
+#
+# Method:
+# Variance of Laplacian.
+#
+# Higher score = more high-frequency image detail.
+# Lower score = less detail, potentially blur.
+#
+# Noise and decorative borders can inflate this score.
+
+def calculate_blur(gray):
+
+    laplacian = cv2.Laplacian(
+        gray,
+        cv2.CV_64F
+    )
+
+    global_blur = float(laplacian.var())
+
+    # Divide image into 8x8 tiles.
+    height, width = gray.shape
+
+    tile_scores = []
+
+    for row in range(8):
+        for col in range(8):
+
+            y1 = row * height // 8
+            y2 = (row + 1) * height // 8
+
+            x1 = col * width // 8
+            x2 = (col + 1) * width // 8
+
+            tile = gray[y1:y2, x1:x2]
+
+            if min(tile.shape) < 3:
+                continue
+
+            # Skip nearly uniform areas.
+            # These may be empty white margins.
+            if tile.std() < 20:
+                continue
+
+            score = cv2.Laplacian(
+                tile,
+                cv2.CV_64F
+            ).var()
+
+            tile_scores.append(float(score))
+
+    local_blur = None
+
+    if tile_scores:
+        local_blur = float(
+            np.percentile(tile_scores, 25)
+        )
+
+    return {
+        "global_blur": round(global_blur, 2),
+        "local_blur_p25": (
+            round(local_blur, 2)
+            if local_blur is not None else None
+        ),
+        "content_tiles": len(tile_scores)
+    }
+
+
+# ============================================================
+# BLOCK 5: CALCULATE BRIGHTNESS AND CONTRAST
+# ============================================================
+# Purpose:
+# Identify excessively dark or washed-out scans.
+#
+# Brightness = average grayscale intensity.
+# Contrast = standard deviation of grayscale values.
+
+def calculate_brightness_contrast(gray):
+
+    return {
+        "brightness": round(
+            float(gray.mean()), 2
+        ),
+        "contrast": round(
+            float(gray.std()), 2
+        )
+    }
+
+
+# ============================================================
+# BLOCK 6: DETECT BLACKED-OUT REGIONS
+# ============================================================
+# Purpose:
+# Detect large black regions that may obscure content.
+#
+# Checks:
+# - Overall dark pixel percentage
+# - Largest connected black area
+# - Number of very dark tiles
+#
+# Limitation:
+# Dark photographs, logos, and borders may also
+# trigger these measurements.
+
+def calculate_blackout(gray):
+
+    height, width = gray.shape
+    total_pixels = height * width
+
+    black_mask = (
+        gray < CONFIG["black_pixel_threshold"]
+    ).astype(np.uint8)
+
+    dark_percentage = (
+        float(np.mean(black_mask)) * 100
+    )
+
+    # Connect small gaps in black regions.
+    kernel = cv2.getStructuringElement(
+        cv2.MORPH_RECT,
+        (5, 5)
+    )
+
+    closed = cv2.morphologyEx(
+        black_mask,
+        cv2.MORPH_CLOSE,
+        kernel
+    )
+
+    # Connected components identify separate
+    # groups of black pixels.
+    num_labels, labels, stats, centroids = (
+        cv2.connectedComponentsWithStats(
+            closed,
+            connectivity=8
+        )
+    )
+
+    largest_black_area = 0
+
+    for i in range(1, num_labels):
+
+        area = stats[i, cv2.CC_STAT_AREA]
+
+        largest_black_area = max(
+            largest_black_area,
+            area
+        )
+
+    largest_black_percentage = (
+        largest_black_area / total_pixels
+    ) * 100
+
+    # Divide cropped document into 64 tiles.
+    dark_tiles = 0
+
+    for row in range(8):
+        for col in range(8):
+
+            y1 = row * height // 8
+            y2 = (row + 1) * height // 8
+
+            x1 = col * width // 8
+            x2 = (col + 1) * width // 8
+
+            tile = black_mask[y1:y2, x1:x2]
+
+            if tile.size == 0:
+                continue
+
+            # Tile is very dark if over 85%
+            # of its pixels are black.
+            if np.mean(tile) > 0.85:
+                dark_tiles += 1
+
+    return {
+        "dark_pixel_percentage": round(
+            dark_percentage, 2
+        ),
+        "largest_black_region_percentage": round(
+            largest_black_percentage, 2
+        ),
+        "very_dark_tiles": dark_tiles
+    }
+
+
+# ============================================================
+# BLOCK 7: DETECT BLANK / WASHED-OUT SCANS
+# ============================================================
+# Purpose:
+# Detect pages that are almost completely white.
+
+def calculate_blankness(gray):
+
+    white_percentage = float(
+        np.mean(
+            gray >= CONFIG["white_pixel_threshold"]
+        )
+    ) * 100
+
+    return {
+        "white_pixel_percentage": round(
+            white_percentage, 2
+        )
+    }
+
+
+# ============================================================
+# BLOCK 8: APPLY FILTERING THRESHOLDS
+# ============================================================
+# Purpose:
+# Compare measurements with candidate thresholds.
+#
+# IMPORTANT:
+# We return REVIEW rather than automatically rejecting.
+# Thresholds must be validated against OCR success.
+
+def evaluate_quality(metrics, native_text=False):
+
+    flags = []
+
+    blur = metrics["local_blur_p25"]
+
+    if not native_text and blur is not None:
+
+        if blur < CONFIG["severe_blur_threshold"]:
+            flags.append("POSSIBLE_SEVERE_BLUR")
+
+        elif blur < CONFIG["moderate_blur_threshold"]:
+            flags.append("POSSIBLE_MODERATE_BLUR")
+
+    if (
+        metrics["dark_pixel_percentage"]
+        > CONFIG["dark_pixel_threshold"]
+    ):
+        flags.append("EXCESSIVELY_DARK")
+
+    if (
+        metrics["largest_black_region_percentage"]
+        > CONFIG["large_black_region_threshold"]
+    ):
+        flags.append("LARGE_BLACK_REGION")
+
+    if (
+        metrics["very_dark_tiles"]
+        >= CONFIG["dark_tile_threshold"]
+    ):
+        flags.append("MULTIPLE_DARK_REGIONS")
+
+    if (
+        metrics["white_pixel_percentage"]
+        > CONFIG["blank_white_threshold"]
+        and metrics["contrast"]
+        < CONFIG["low_contrast_threshold"]
+    ):
+        flags.append("POSSIBLY_BLANK")
+
+    status = "REVIEW" if flags else "PASS"
+
+    return status, flags
+
+
+# ============================================================
+# BLOCK 9: ANALYZE COMPLETE DOCUMENT
+# ============================================================
+# Purpose:
+# Process every page, crop it, calculate metrics,
+# evaluate thresholds, and produce JSON.
+#
+# Debug images are saved locally only when requested.
+
+def analyze_document(file_path, debug_dir=None):
+
+    pages = load_document(file_path)
+
+    if debug_dir:
+        os.makedirs(debug_dir, exist_ok=True)
+
+    results = []
+
+    for page_data in pages:
+
+        page_number = page_data["page"]
+        original = page_data["image"]
+        native_text = page_data["native_text"]
+
+        # Step 1: Crop white margins.
+        cropped, crop_status, crop_box = (
+            crop_document(original)
+        )
+
+        # Step 2: Calculate all metrics.
+        blur_metrics = calculate_blur(cropped)
+
+        brightness_metrics = (
+            calculate_brightness_contrast(cropped)
+        )
+
+        blackout_metrics = (
+            calculate_blackout(cropped)
+        )
+
+        blank_metrics = calculate_blankness(cropped)
+
+        metrics = {
+            **blur_metrics,
+            **brightness_metrics,
+            **blackout_metrics,
+            **blank_metrics,
+            "width_px": int(cropped.shape[1]),
+            "height_px": int(cropped.shape[0])
+        }
+
+        # Step 3: Apply filtering rules.
+        status, flags = evaluate_quality(
+            metrics,
+            native_text=native_text
+        )
+
+        # If crop detection failed, do not trust
+        # the measurements enough to auto-accept.
+        if crop_status != "CROPPED":
+            flags.append("CROP_UNCERTAIN")
+            status = "REVIEW"
+
+        result = {
+            "page": page_number,
+            "status": status,
+            "crop_status": crop_status,
+            "crop_box": list(crop_box),
+            "native_pdf_text": native_text,
+            "flags": flags,
+            "metrics": metrics
+        }
+
+        results.append(result)
+
+        # Save images to visually inspect cropping.
+        if debug_dir:
+
+            cropped_path = os.path.join(
+                debug_dir,
+                f"page_{page_number}_crop.png"
+            )
+
+            cv2.imwrite(cropped_path, cropped)
+
+            # Draw detected crop boundary.
+            preview = cv2.cvtColor(
+                original,
+                cv2.COLOR_GRAY2BGR
+            )
+
+            x1, y1, x2, y2 = crop_box
+
+            cv2.rectangle(
+                preview,
+                (x1, y1),
+                (x2, y2),
+                (0, 0, 255),
+                3
+            )
+
+            preview_path = os.path.join(
+                debug_dir,
+                f"page_{page_number}_detected.png"
+            )
+
+            cv2.imwrite(preview_path, preview)
+
+    overall_status = (
+        "REVIEW"
+        if any(
+            p["status"] == "REVIEW"
+            for p in results
+        )
+        else "PASS"
+    )
+
+    report = {
+        "file_name": Path(file_path).name,
+        "document_status": overall_status,
+        "pages": results
+    }
+
+    if debug_dir:
+
+        report_path = os.path.join(
+            debug_dir,
+            "quality_report.json"
+        )
+
+        with open(
+            report_path,
+            "w",
+            encoding="utf-8"
+        ) as f:
+            json.dump(report, f, indent=2)
+
+    return report
+
+
+# ============================================================
+# BLOCK 10: MAIN FUNCTION
+# ============================================================
+# Change FILE_PATH to your local PDF or image.
+# Run:
+#     python document_quality_filter.py
+
+def main():
+
+    # FILE_PATH = r"E:\Document_Processing_AI\Classification_training\Driver Licence\DL1.jpeg"
+    # FILE_PATH = r"F:\Downloads\documents\test docs\Screenshot 2026-10-22 072712.png"
+    # FILE_PATH = r"F:\Downloads\documents\test docs\PD_social_security_card.png"
+    FILE_PATH = r"F:\Downloads\documents\v86cjjyrov4f1.jpeg"
+    # FILE_PATH = r"F:\Downloads\documents\test docs\PD_social_security_card.png"
+    # FILE_PATH = r"F:\Downloads\documents\test docs\PD_social_security_card.png"
+    # FILE_PATH = r"F:\Downloads\documents\test docs\PD_social_security_card.png"
+    
+
+    DEBUG_DIR = "debug_quality"
+
+    if not os.path.isfile(FILE_PATH):
+        print(f"File not found: {FILE_PATH}")
+        return
+
+    try:
+
+        result = analyze_document(
+            FILE_PATH,
+            debug_dir=DEBUG_DIR
+        )
+
+        print("\nDOCUMENT QUALITY REPORT")
+        print("=" * 60)
+
+        print(json.dumps(
+            result,
+            indent=2
+        ))
+
+        print("\nOverall decision:",
+              result["document_status"])
+
+        print("\nDebug files saved in:",
+              os.path.abspath(DEBUG_DIR))
+
+    except Exception as error:
+
+        print("Error analyzing document:", str(error))
+
+
+if __name__ == "__main__":
+    main()
+
+
+-------------------------------------
