@@ -14130,4 +14130,169 @@ if __name__ == "__main__":
     main()
 
 
+
+
+
+                ----------------------------------------------
+
+
+
+
+import os
+import json
+import logging
+from datetime import datetime, timezone
+
+from azure.data.tables import TableServiceClient, UpdateMode
+from docscan import analyze_document
+
+
+TABLE_NAME = "DocumentQualityReview"
+
+
+def save_document_quality(uuid: str, report: dict) -> int:
+    """
+    Save one record per original PDF page in Azure Table Storage.
+    """
+
+    connection_string = os.getenv("STORAGE_CONNECTION_STRING")
+
+    if not connection_string:
+        raise RuntimeError(
+            "STORAGE_CONNECTION_STRING is not configured"
+        )
+
+    table_service = TableServiceClient.from_connection_string(
+        conn_str=connection_string
+    )
+
+    table_client = table_service.create_table_if_not_exists(
+        table_name=TABLE_NAME
+    )
+
+    saved_count = 0
+
+    for page in report.get("pages", []):
+        page_number = int(page["page"])
+
+        entity = {
+            "PartitionKey": str(uuid),
+            "RowKey": f"{page_number:06d}",
+            "UUID": str(uuid),
+            "PageNumber": page_number,
+            "ReviewStatus": page.get("status", "REVIEW"),
+            "ReviewReasons": json.dumps(
+                page.get("flags", [])
+            ),
+            "DocumentStatus": report.get(
+                "document_status", "REVIEW"
+            ),
+            "CropStatus": page.get("crop_status", ""),
+            "UpdatedAtUTC": datetime.now(
+                timezone.utc
+            ).isoformat(),
+        }
+
+        table_client.upsert_entity(
+            entity=entity,
+            mode=UpdateMode.REPLACE
+        )
+
+        saved_count += 1
+
+    logging.info(
+        "Document quality saved for UUID=%s, pages=%d",
+        uuid,
+        saved_count
+    )
+
+    return saved_count
+
+
+def analyze_and_save_quality(
+    uuid: str,
+    pdf_path: str
+) -> dict:
+    """
+    Analyze every PDF page, then save each page's
+    quality status to Azure Table Storage.
+    """
+
+    report = analyze_document(pdf_path)
+
+    if not report.get("pages"):
+        raise ValueError(
+            "Document quality analysis returned no pages"
+        )
+
+    saved_count = save_document_quality(
+        uuid=uuid,
+        report=report
+    )
+
+    logging.info(
+        "Quality analysis complete: UUID=%s, "
+        "document_status=%s, saved_pages=%d",
+        uuid,
+        report.get("document_status"),
+        saved_count
+    )
+
+    return report
+
+               ---------------------------------------------
+
+
+
+
+
+import tempfile
+from pathlib import Path
+
+from document_quality_storage import analyze_and_save_quality
+
+
+
+
+
+
+
+
+# ------------------------------------------
+# Step 3.1: Document quality review
+# ------------------------------------------
+
+try:
+    with tempfile.TemporaryDirectory() as temp_dir:
+
+        pdf_path = Path(temp_dir) / "document.pdf"
+        pdf_path.write_bytes(pdf_bytes)
+
+        quality_report = analyze_and_save_quality(
+            uuid=uuid,
+            pdf_path=str(pdf_path)
+        )
+
+        logging.info(
+            "Document quality review saved: "
+            "UUID=%s, Status=%s, Pages=%d",
+            uuid,
+            quality_report.get("document_status"),
+            len(quality_report.get("pages", []))
+        )
+
+except Exception:
+    logging.exception(
+        "Document quality analysis/storage failed "
+        "for UUID=%s. Continuing ingestion.",
+        uuid
+    )
+
+# ------------------------------------------
+# Step 4: Compute file hash
+# Existing code continues unchanged
+# ------------------------------------------
+sha256 = _sha256_bytes(pdf_bytes)
+
+
 -------------------------------------
