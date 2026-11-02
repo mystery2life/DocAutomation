@@ -14480,3 +14480,10 @@ def flag_bank_transactions(req: func.HttpRequest) -> func.HttpResponse:
         logging.exception('Bank flagging failed for UUID %s', document_uuid)
         return func.HttpResponse(json.dumps({'status': 'FAILED', 'error': 'Processing failed; check application logs'}),
                                  status_code=500, mimetype='application/json')
+
+
+
+
+
+
+https://lucid.app/lucidchart/f93525ed-113f-4d95-b7da-dd0649382f2d/edit?viewport_loc=460%2C-97%2C3040%2C1803%2C0_0&invitationId=inv_e8f941d1-5688-4352-b579-6b6955051b05
