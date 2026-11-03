@@ -14487,3 +14487,388 @@ def flag_bank_transactions(req: func.HttpRequest) -> func.HttpResponse:
 
 
 https://lucid.app/lucidchart/f93525ed-113f-4d95-b7da-dd0649382f2d/edit?viewport_loc=460%2C-97%2C3040%2C1803%2C0_0&invitationId=inv_e8f941d1-5688-4352-b579-6b6955051b05
+
+
+
+
+    -----------------------------------------------------------------------------------------flagging rules--------------------------------------------------------------
+
+
+
+
+# Bank Statement Transaction Flagging Rules – LLM Requirements
+
+## 1. Objective
+
+Identify potentially significant transfers, cash withdrawals, and other outgoing transactions that may reduce an applicant's available bank balance before submitting a medical benefits application.
+
+The primary objective is to identify transactions where money has been transferred to other accounts, withdrawn as cash, or moved through other financial instruments, potentially reducing the balance visible in the applicant's bank statements.
+
+The system will receive 16 months of bank statements, the applicant's monthly income, and the medical application date.
+
+Transactions meeting the defined conditions must be flagged for further review. A flagged transaction does not establish intentional asset reduction, improper transfers, or an eligibility violation.
+
+All thresholds below are proposed screening values and must be reviewed and approved by the business team before production implementation.
+
+## 2. Common Input Variables
+
+- `APPLICATION_DATE` = Medical benefits application date
+- `MONTHLY_INCOME` = Applicant's verified monthly income
+- `BANK_STATEMENT_MONTHS` = 16
+- `REVIEW_WINDOW_DAYS` = 90
+- `PRE_APPLICATION_WINDOW_DAYS` = 30
+- `CRITICAL_WINDOW_DAYS` = 7
+- `HISTORICAL_BASELINE_MONTHS` = 13
+- `TRANSACTION_DATE` = Transaction date
+- `TRANSACTION_AMOUNT` = Transaction amount
+- `TRANSACTION_TYPE` = Debit or credit
+- `TRANSACTION_DESCRIPTION` = Bank transaction description
+- `RECIPIENT_NAME` = Recipient name, if available
+- `DESTINATION_ACCOUNT` = Destination account identifier, if available
+- `PRE_TRANSACTION_BALANCE` = Balance before transaction
+- `POST_TRANSACTION_BALANCE` = Balance after transaction
+
+The 90-day review period is the primary screening window. Earlier available transactions should be used to establish historical patterns. The applicable medical assistance program may require a longer legal asset-transfer lookback.
+
+## 3. Transaction Flagging Rules
+
+### Rule 1: Large Transfers to Other Accounts
+
+**Objective:** Identify substantial outgoing transfers to other accounts, especially before the medical application date.
+
+Conditions:
+
+1. Consider outgoing transactions within 90 days before the application date.
+2. Identify ACH transfers, wire transfers, Zelle, Venmo, bank transfers, and similar outgoing transactions.
+3. Flag individual transfers exceeding 50% of monthly income.
+4. Flag cumulative qualifying transfers exceeding 100% of monthly income within any rolling 30-day period.
+5. Identify the recipient name and destination account where available.
+6. Compare transfer amounts against historical transaction activity.
+7. Prioritize transfers occurring within 30 days before application.
+8. Exclude confirmed transfers between the applicant's own accounts from suspected asset-disposal flags.
+
+Variables:
+
+- `TRANSFER_LOOKBACK_DAYS = 90`
+- `SINGLE_TRANSFER_INCOME_PCT = 50`
+- `CUMULATIVE_TRANSFER_INCOME_PCT = 100`
+- `CUMULATIVE_TRANSFER_WINDOW_DAYS = 30`
+
+**Flag Condition:**
+
+Single qualifying transfer > 50% of monthly income OR cumulative qualifying transfers > 100% of monthly income within 30 days.
+
+### Rule 2: Multiple Transfers to the Same Recipient
+
+**Objective:** Identify repeated transfers to the same recipient that collectively move a substantial amount out of the account.
+
+Conditions:
+
+1. Consider outgoing transactions within 90 days before application.
+2. Group transactions using normalized recipient names or destination account identifiers.
+3. Identify at least 3 transfers to the same recipient within any rolling 30-day period.
+4. Calculate the cumulative amount transferred to that recipient.
+5. Flag if the cumulative amount exceeds 50% of monthly income.
+6. Identify whether the recipient appeared in earlier transaction history.
+7. Exclude identifiable routine payments such as rent, utilities, insurance, and loan repayments when evaluating potentially unexplained transfers.
+8. Return all contributing transaction IDs.
+
+Variables:
+
+- `REPEAT_TRANSFER_LOOKBACK_DAYS = 90`
+- `REPEAT_TRANSFER_WINDOW_DAYS = 30`
+- `MIN_TRANSFER_COUNT = 3`
+- `REPEAT_TRANSFER_INCOME_PCT = 50`
+
+**Flag Condition:**
+
+At least 3 qualifying transfers to the same recipient within 30 days AND cumulative amount > 50% of monthly income.
+
+### Rule 3: Large Cash or ATM Withdrawals
+
+**Objective:** Identify substantial withdrawals that convert bank funds into cash and reduce the visible account balance.
+
+Conditions:
+
+1. Consider cash withdrawals within 90 days before application.
+2. Identify ATM withdrawals, teller withdrawals, and other cash withdrawals.
+3. Flag individual withdrawals exceeding 25% of monthly income.
+4. Flag cumulative cash withdrawals exceeding 50% of monthly income within any rolling 30-day period.
+5. Calculate the historical average monthly cash withdrawal amount.
+6. Identify withdrawals exceeding twice the historical average.
+7. Prioritize large cash withdrawals within 30 days before application.
+8. Return the withdrawal amounts, dates, and percentages of monthly income.
+
+Variables:
+
+- `CASH_LOOKBACK_DAYS = 90`
+- `SINGLE_CASH_WITHDRAWAL_PCT = 25`
+- `CUMULATIVE_CASH_WITHDRAWAL_PCT = 50`
+- `CASH_CUMULATIVE_WINDOW_DAYS = 30`
+- `HISTORICAL_CASH_MULTIPLIER = 2`
+
+**Flag Condition:**
+
+Single cash withdrawal > 25% of monthly income OR cumulative cash withdrawals > 50% of monthly income within 30 days.
+
+### Rule 4: Multiple Smaller Transfers or Withdrawals
+
+**Objective:** Identify multiple smaller outgoing transactions that collectively move a significant amount out of the account.
+
+Conditions:
+
+1. Consider outgoing transactions within 90 days before application.
+2. Identify transfers and cash withdrawals within any rolling 7-day period.
+3. Require at least 3 qualifying transactions within that period.
+4. Calculate the cumulative outgoing amount.
+5. Flag if the cumulative amount exceeds 75% of monthly income.
+6. Identify whether individual transactions fall below the large single-transfer threshold.
+7. Compare transaction frequency with historical activity.
+8. Return all contributing transaction IDs.
+
+Variables:
+
+- `SPLIT_TRANSACTION_LOOKBACK_DAYS = 90`
+- `SPLIT_TRANSACTION_WINDOW_DAYS = 7`
+- `MIN_SPLIT_TRANSACTION_COUNT = 3`
+- `SPLIT_TRANSACTION_INCOME_PCT = 75`
+
+**Flag Condition:**
+
+At least 3 qualifying transfers or withdrawals within 7 days AND cumulative amount > 75% of monthly income.
+
+This pattern should not independently be treated as proof of deliberate threshold avoidance.
+
+### Rule 5: Significant Reduction in Account Balance
+
+**Objective:** Identify outgoing transactions that substantially reduce the applicant's available bank balance.
+
+Conditions:
+
+1. Consider outgoing transactions within 90 days before application.
+2. Determine the account balance immediately before each transaction.
+3. Calculate the percentage reduction in balance caused by the transaction.
+4. Flag individual transactions reducing the pre-transaction balance by 50% or more.
+5. Identify cumulative qualifying outflows within 30 days that result in a net balance reduction of 70% or more.
+6. Account for deposits occurring during the evaluation period.
+7. Prioritize substantial reductions within 30 days before application.
+8. Exclude confirmed routine expenses from suspected asset-transfer classification unless additional concerns are present.
+
+Variables:
+
+- `BALANCE_LOOKBACK_DAYS = 90`
+- `SINGLE_BALANCE_REDUCTION_PCT = 50`
+- `CUMULATIVE_BALANCE_REDUCTION_PCT = 70`
+- `BALANCE_REDUCTION_WINDOW_DAYS = 30`
+
+Calculation:
+
+`BALANCE_REDUCTION_PCT = (TRANSACTION_AMOUNT / PRE_TRANSACTION_BALANCE) × 100`
+
+**Flag Condition:**
+
+Single qualifying transaction reduces the balance by at least 50% OR qualifying cumulative activity results in a net balance reduction of at least 70% within 30 days.
+
+### Rule 6: Large Transfers Shortly Before Application
+
+**Objective:** Identify significant outgoing transactions immediately before the medical application date.
+
+Conditions:
+
+1. Consider outgoing transactions within 30 days before the application date.
+2. Identify transfers, cash withdrawals, and outgoing checks.
+3. Flag individual qualifying transactions exceeding 30% of monthly income.
+4. Flag cumulative qualifying outflows exceeding 75% of monthly income within 30 days.
+5. Assign higher review priority to qualifying transactions occurring within 7 days before application.
+6. Identify the recipient or destination account where available.
+7. Compare the transaction activity with historical patterns.
+8. Exclude identifiable routine expenses where appropriate.
+
+Variables:
+
+- `PRE_APPLICATION_LOOKBACK_DAYS = 30`
+- `CRITICAL_APPLICATION_WINDOW_DAYS = 7`
+- `PRE_APPLICATION_SINGLE_TRANSFER_PCT = 30`
+- `PRE_APPLICATION_CUMULATIVE_PCT = 75`
+
+**Flag Condition:**
+
+Single qualifying outflow > 30% of monthly income OR cumulative qualifying outflows > 75% of monthly income within 30 days before application.
+
+### Rule 7: Transfers to New or Previously Unseen Recipients
+
+**Objective:** Identify significant transfers to recipients who do not appear in the applicant's historical banking activity.
+
+Conditions:
+
+1. Consider outgoing transfers within 90 days before application.
+2. Identify recipient names and destination account identifiers.
+3. Compare recipients against the earlier 13 months of available transaction history.
+4. Identify recipients who have not previously received transfers.
+5. Flag individual transfers exceeding 30% of monthly income to new recipients.
+6. Flag repeated transfers to new recipients totaling more than 50% of monthly income within any rolling 30-day period.
+7. Identify whether the destination account belongs to the applicant.
+8. Return the recipient, amount, transaction date, and historical matching result.
+
+Variables:
+
+- `NEW_RECIPIENT_LOOKBACK_DAYS = 90`
+- `RECIPIENT_HISTORY_MONTHS = 13`
+- `NEW_RECIPIENT_SINGLE_PCT = 30`
+- `NEW_RECIPIENT_CUMULATIVE_PCT = 50`
+- `NEW_RECIPIENT_WINDOW_DAYS = 30`
+
+**Flag Condition:**
+
+Transfer to a new recipient > 30% of monthly income OR repeated transfers to new recipients > 50% of monthly income within 30 days.
+
+### Rule 8: Large Deposits Followed by Immediate Transfers or Withdrawals
+
+**Objective:** Identify substantial deposits followed by rapid outgoing movement of funds.
+
+Conditions:
+
+1. Consider deposits within 90 days before application.
+2. Identify individual deposits exceeding 50% of monthly income.
+3. Examine outgoing transfers and cash withdrawals within 7 days after each qualifying deposit.
+4. Calculate the total qualifying outgoing amount.
+5. Flag if qualifying outflows equal or exceed 70% of the deposit amount.
+6. Identify destination accounts or recipients.
+7. Distinguish regular income deposits from unusual deposits where possible.
+8. Return the deposit and all associated outgoing transaction IDs.
+
+Variables:
+
+- `DEPOSIT_LOOKBACK_DAYS = 90`
+- `LARGE_DEPOSIT_INCOME_PCT = 50`
+- `DEPOSIT_OUTFLOW_WINDOW_DAYS = 7`
+- `DEPOSIT_OUTFLOW_THRESHOLD_PCT = 70`
+
+Calculation:
+
+`OUTFLOW_PERCENTAGE = (QUALIFYING_OUTGOING_AMOUNT / DEPOSIT_AMOUNT) × 100`
+
+**Flag Condition:**
+
+Deposit > 50% of monthly income AND qualifying outgoing transfers or withdrawals ≥ 70% of the deposit amount within 7 days.
+
+This identifies a transaction sequence and does not establish that the exact deposited funds were transferred.
+
+### Rule 9: Unusual Increase in Transfers or Withdrawals Before Application
+
+**Objective:** Identify significant increases in outgoing financial activity compared with the applicant's historical banking behavior.
+
+Conditions:
+
+1. Use the earlier 13 months of bank statements to calculate average monthly qualifying transfers and withdrawals.
+2. Calculate total qualifying outgoing transactions during the final 30 days before application.
+3. Compare recent activity against the historical monthly average.
+4. Flag if recent qualifying outflows exceed twice the historical monthly average.
+5. Require the excess above the historical average to exceed 50% of monthly income.
+6. Identify increases involving cash withdrawals, new recipients, or transaction frequency.
+7. Exclude identifiable routine or seasonal payments where appropriate.
+8. Return historical average, recent total, and percentage increase.
+
+Variables:
+
+- `HISTORICAL_BASELINE_MONTHS = 13`
+- `RECENT_ACTIVITY_WINDOW_DAYS = 30`
+- `HISTORICAL_ACTIVITY_MULTIPLIER = 2`
+- `MIN_EXCESS_INCOME_PCT = 50`
+
+Calculation:
+
+`ACTIVITY_RATIO = RECENT_30_DAY_OUTFLOWS / HISTORICAL_AVERAGE_MONTHLY_OUTFLOWS`
+
+**Flag Condition:**
+
+Recent 30-day qualifying outflows > 2 times the historical monthly average AND excess outflows > 50% of monthly income.
+
+If the historical average is zero, use the absolute income threshold and report that a historical ratio cannot be calculated.
+
+### Rule 10: Large Outgoing Transactions with Unknown Recipients
+
+**Objective:** Identify significant outgoing transactions that reduce the bank balance but whose recipient or destination cannot be established.
+
+Conditions:
+
+1. Consider outgoing transactions within 90 days before application.
+2. Identify checks, cashier's checks, money orders, and transfers with missing or unclear recipient information.
+3. Flag individual transactions exceeding 25% of monthly income.
+4. Flag cumulative unidentified outgoing transactions exceeding 50% of monthly income within any rolling 30-day period.
+5. Attempt to identify recipients using transaction descriptions and historical activity.
+6. Distinguish unidentified recipients from known merchants and routine payments.
+7. Do not invent missing recipient information.
+8. Return transaction IDs, amounts, dates, descriptions, and missing information.
+
+Variables:
+
+- `UNKNOWN_RECIPIENT_LOOKBACK_DAYS = 90`
+- `UNKNOWN_RECIPIENT_SINGLE_PCT = 25`
+- `UNKNOWN_RECIPIENT_CUMULATIVE_PCT = 50`
+- `UNKNOWN_RECIPIENT_WINDOW_DAYS = 30`
+
+**Flag Condition:**
+
+Single unidentified outgoing transaction > 25% of monthly income OR cumulative unidentified outflows > 50% of monthly income within 30 days.
+
+## 4. Common LLM Processing Instructions
+
+1. Analyze all available bank statement transactions using the application date as the reference.
+2. Apply all 10 transaction flagging rules.
+3. Use monthly income to calculate income-based percentage thresholds.
+4. Use account balances to calculate balance reduction percentages.
+5. Use the earlier available bank statement history to establish normal transaction behavior.
+6. Evaluate individual transactions, repeated transactions, cumulative amounts, and transaction sequences.
+7. Normalize recipient names conservatively before grouping transactions.
+8. Identify the destination of transferred funds wherever possible.
+9. Distinguish transfers between the applicant's own accounts from transfers to third parties.
+10. Do not automatically classify ordinary living expenses as potentially improper asset transfers.
+11. Do not infer intent, fraud, or eligibility violations solely from transactions.
+12. Flag transactions meeting one or more configured screening conditions.
+13. Return each flagged transaction only once, with all applicable rule IDs.
+14. Include supporting transaction IDs for cumulative and sequence-based conditions.
+15. Return the amount, applicable threshold, percentage calculation, and factual reason for each flag.
+16. If required information is missing, mark the relevant rule condition as `NOT_EVALUABLE`.
+17. If no transactions meet the criteria, return an empty flagged-transactions list.
+18. Return results in valid JSON without additional commentary.
+
+## 5. Expected Output Fields
+
+- `transaction_id`
+- `transaction_date`
+- `transaction_description`
+- `transaction_amount`
+- `transaction_type`
+- `recipient_name`
+- `destination_account`
+- `matched_rule_ids`
+- `monthly_income`
+- `percentage_of_income`
+- `pre_transaction_balance`
+- `post_transaction_balance`
+- `balance_reduction_percentage`
+- `days_before_application`
+- `related_transaction_ids`
+- `flag_reason`
+- `review_priority`
+- `review_status`
+
+## 6. Review Priority
+
+**HIGH:** Significant unexplained transfers or withdrawals within 30 days before application that materially reduce the account balance.
+
+**MEDIUM:** Repeated transfers, transfers to new recipients, large cash withdrawals, or significant changes in transaction activity within 90 days before application.
+
+**LOW:** Transactions meeting a numerical screening threshold but consistent with historical activity or having an identifiable routine purpose.
+
+## 7. Implementation Requirements
+
+1. All percentage thresholds, transaction counts, and review periods must be configurable.
+2. The same transaction may match multiple rules and should not be duplicated in the final output.
+3. Percentage calculations and transaction-window evaluations should preferably be performed in Python for consistency and auditability.
+4. The LLM should primarily interpret transaction descriptions, assist with recipient classification, and generate factual explanations.
+5. Every flag must be traceable to the original bank statement transaction.
+6. Transactions should be flagged for caseworker review rather than automatically treated as improper asset transfers.
+7. The screening lookback period must be configurable based on applicable program requirements. The available 16 months of statements may not cover the entire legally required Medicaid asset-transfer lookback.
+8. All proposed thresholds must be approved by the eligibility and business teams before production deployment.
